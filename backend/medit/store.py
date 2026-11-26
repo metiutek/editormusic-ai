@@ -18,6 +18,8 @@ import copy
 import json
 import math
 import os
+import shutil
+import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -26,7 +28,7 @@ from typing import Any
 
 import numpy as np
 
-from . import analyze, audio_io, midi_io, presets, render, synth, theory
+from . import ai, analyze, audio_io, cloud, comfy, midi_io, presets, render, separa, synth, theory, trascrivi, voce
 from . import effects as fx
 from .model import (
     AUDIO_EXTS,
@@ -95,6 +97,9 @@ class Store:
         self._scratch: Path | None = None
         # un metodo che ne chiama altri (add_bus -> add_track + apply_chain) resta UNA modifica
         self._in_edit = False
+        # una scrittura alla volta: le generazioni IA lavorano minuti fuori dal lucchetto e
+        # scrivono il risultato dentro, senza intrecciarsi con la UI o con l'agente
+        self.lock = threading.RLock()
 
     # ---- ciclo di vita -------------------------------------------------
     @classmethod
@@ -241,20 +246,24 @@ class Store:
             finally:
                 self._batch -= 1
             return
-        self._undo.append(self.project.to_dict())
-        if len(self._undo) > MAX_HISTORY:
-            self._undo.pop(0)
-        self._redo.clear()
-        self._batch = 1
+        self.lock.acquire()
         try:
-            yield self
-        except Exception:
-            self.project = Project.from_obj(self._undo.pop())
-            self.version += 1
-            raise
+            self._undo.append(self.project.to_dict())
+            if len(self._undo) > MAX_HISTORY:
+                self._undo.pop(0)
+            self._redo.clear()
+            self._batch = 1
+            try:
+                yield self
+            except Exception:
+                self.project = Project.from_obj(self._undo.pop())
+                self.version += 1
+                raise
+            finally:
+                self._batch = 0
+            self._done()
         finally:
-            self._batch = 0
-        self._done()
+            self.lock.release()
 
     @contextmanager
     def _edit(self):
@@ -265,6 +274,10 @@ class Store:
         if self._batch or self._in_edit:
             yield
             return
+        with self.lock:
+            yield from self._edit_fuori()
+
+    def _edit_fuori(self):
         prima = self.project.to_dict()
         self._undo.append(prima)
         if len(self._undo) > MAX_HISTORY:
@@ -284,19 +297,21 @@ class Store:
         self._done()
 
     def undo(self) -> dict:
-        if not self._undo:
-            raise EditError("nothing to undo")
-        self._redo.append(self.project.to_dict())
-        self.project = Project.from_obj(self._undo.pop())
-        self._done()
+        with self.lock:
+            if not self._undo:
+                raise EditError("nothing to undo")
+            self._redo.append(self.project.to_dict())
+            self.project = Project.from_obj(self._undo.pop())
+            self._done()
         return {"undo": len(self._undo), "redo": len(self._redo)}
 
     def redo(self) -> dict:
-        if not self._redo:
-            raise EditError("nothing to redo")
-        self._undo.append(self.project.to_dict())
-        self.project = Project.from_obj(self._redo.pop())
-        self._done()
+        with self.lock:
+            if not self._redo:
+                raise EditError("nothing to redo")
+            self._undo.append(self.project.to_dict())
+            self.project = Project.from_obj(self._redo.pop())
+            self._done()
         return {"undo": len(self._undo), "redo": len(self._redo)}
 
     # ---- conversioni ---------------------------------------------------
@@ -1608,6 +1623,205 @@ class Store:
                 raise EditError(f"{a.name} is used by a clip: remove the clip first")
             self.project.assets.remove(a)
         return {"removed": a.name}
+
+    # ---- IA: generazione, stem, voce, trascrizione ---------------------------
+    # Il lavoro lungo (ComfyUI, rete, Demucs, Applio) avviene FUORI da _edit; il
+    # risultato entra con una sola modifica: un undo, niente lucchetti tenuti per minuti.
+    # Niente e' distruttivo: tracce nuove, l'originale al massimo silenziato.
+
+    def _asset_da(self, src: bytes | Path, name: str, ext: str, source: str) -> Asset:
+        d = self.assets_dir() / "generated"
+        d.mkdir(parents=True, exist_ok=True)
+        base = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in name)[:40] or "audio"
+        dest = d / f"{base}_{uuid.uuid4().hex[:6]}{ext}"
+        if isinstance(src, (bytes, bytearray)):
+            dest.write_bytes(src)
+        else:
+            shutil.copyfile(src, dest)
+        if ext.lower() not in _NATIVI:
+            x = audio_io.load(dest, self.project.sample_rate)
+            wav = dest.with_suffix(".wav")
+            audio_io.write(wav, x, self.project.sample_rate, 24)
+            dest.unlink(missing_ok=True)
+            dest = wav
+        try:
+            inf = audio_io.info(dest)
+        except audio_io.AudioError as exc:
+            raise EditError(f"the generated file is not readable audio: {exc}") from exc
+        a = Asset(id=new_id("A"), path=self._percorso_asset(dest), name=name, duration=inf["duration"],
+                  sample_rate=inf["sample_rate"], channels=inf["channels"], generated=True, source=source)
+        self.project.assets.append(a)
+        return a
+
+    def _testo_canzone(self) -> str:
+        """Il testo delle sezioni nel formato a etichette di ACE-Step: [Verse] / [Chorus]..."""
+        blocchi = []
+        for s in sorted(self.project.sections, key=lambda s: s.start):
+            if s.lyrics.strip():
+                blocchi.append(f"[{s.name.strip().title()}]\n{s.lyrics.strip()}")
+        return "\n\n".join(blocchi)
+
+    def _audio_clip(self, clip: str) -> tuple[Track, Clip, np.ndarray]:
+        t, c = self._clip(clip)
+        if c.kind != "audio":
+            raise EditError(f"{c.name or c.id} is a MIDI clip: this needs an audio clip")
+        sr = self.project.sample_rate
+        n = render.beat_sample(self.project, c.end, sr) + sr
+        # anche una clip silenziata (l'originale dopo separate_stems): qui serve il suo audio
+        sorgente = copy.copy(c)
+        sorgente.muted = False
+        r = render._audio_clip(self.project, sorgente, sr, n, render._loader(self.project, self.base_dir, sr))
+        if r is None:
+            raise EditError(f"the audio of {c.name or c.id} cannot be read (file missing?)")
+        return t, c, r[1]
+
+    def generate_song(self, prompt: str, lyrics: str | None = None, seconds: float | None = None, bar: float = 1,
+                      instrumental: bool = False, backend: str = "auto", seed: int = -1, language: str = "en",
+                      name: str | None = None, track: str | None = None) -> dict:
+        """Una canzone intera (anche cantata) da uno stile e un testo: ACE-Step 1.5 in ComfyUI o
+        ElevenLabs. Senza ``lyrics`` usa i testi delle sezioni; durata = la struttura, se c'e'."""
+        p = self.project
+        if not prompt or not prompt.strip():
+            raise EditError("describe the song: genre, mood, instruments, voice")
+        try:
+            motore = ai.scegli(backend, "song")
+        except ai.AIError as exc:
+            raise EditError(str(exc)) from exc
+        testo = "[Instrumental]" if instrumental else (lyrics if lyrics is not None else self._testo_canzone())
+        if seconds is None:
+            seconds = p.beat_to_s(max(s.end for s in p.sections)) if p.sections else 60.0
+        seconds = float(np.clip(seconds, 5, 600))
+        chiave = f"{p.key} {p.mode if p.mode in ('major', 'minor') else 'major'}"
+        try:
+            if motore == "comfyui":
+                data, ext = comfy.generate_song(prompt.strip(), testo or "[Instrumental]", seconds, p.bpm, chiave,
+                                                p.time_sig[0], language, seed), ".flac"
+            else:
+                descr = f"{prompt.strip()}. {p.bpm:g} BPM, key of {chiave}."
+                if instrumental:
+                    descr += " Instrumental, no vocals."
+                elif testo:
+                    descr += f" Sung lyrics:\n{testo}"
+                data, ext = cloud.genera(motore, descr, seconds)
+        except (comfy.ComfyError, cloud.CloudError) as exc:
+            raise EditError(str(exc)) from exc
+        with self._edit():
+            a = self._asset_da(data, name or "AI song", ext, f"{motore}: {prompt.strip()[:200]}")
+            r = self.add_audio(asset=a.id, track=track, bar=bar, name=name or "AI song")
+        return {**r, "backend": motore, "seconds": round(a.duration, 2), "lyrics_used": bool(testo and not instrumental)}
+
+    def generate_audio(self, prompt: str, bars: float | None = None, seconds: float | None = None, bar: float = 1,
+                       track: str | None = None, backend: str = "auto", seed: int = -1, name: str | None = None) -> dict:
+        """Un suono da una descrizione: loop di batteria, strumento, atmosfera, effetto. Con ``bars``
+        la durata e' quella delle battute al tempo della canzone (il tempo entra nel prompt)."""
+        p = self.project
+        if not prompt or not prompt.strip():
+            raise EditError("describe the sound")
+        try:
+            motore = ai.scegli(backend, "sound")
+        except ai.AIError as exc:
+            raise EditError(str(exc)) from exc
+        if bars:
+            seconds = p.beat_to_s(self._bars(bars))
+        seconds = float(np.clip(seconds or 8.0, 1, 600 if motore != "comfyui" else 47))
+        descr = f"{prompt.strip()}, {p.bpm:g} BPM" if bars else prompt.strip()
+        try:
+            if motore == "comfyui":
+                data, ext = comfy.generate_audio(descr, seconds, s=seed), ".flac"
+            else:
+                data, ext = cloud.genera(motore, descr, seconds)
+        except (comfy.ComfyError, cloud.CloudError) as exc:
+            raise EditError(str(exc)) from exc
+        with self._edit():
+            a = self._asset_da(data, name or prompt.strip()[:30], ext, f"{motore}: {prompt.strip()[:200]}")
+            r = self.add_audio(asset=a.id, track=track, bar=bar, bars=bars, name=name or prompt.strip()[:30])
+        return {**r, "backend": motore, "seconds": round(a.duration, 2)}
+
+    def separate_stems(self, clip: str, two_stems: bool = False, model: str = "htdemucs") -> dict:
+        """Divide una clip audio in voce, batteria, basso e resto (o voce + base): una traccia per
+        stem nella stessa posizione, la clip originale resta ma silenziata."""
+        t, c = self._clip(clip)
+        if c.kind != "audio" or not c.asset:
+            raise EditError(f"{c.name or c.id} is not an audio clip")
+        a = self.project.asset(c.asset)
+        src = render.resolve(a.path, self.base_dir)
+        cartella = self.assets_dir() / "stems" / f"{a.id}_{model}{'_2' if two_stems else ''}"
+        try:
+            stems = separa.separa(src, cartella, two_stems, model)
+        except separa.SeparaError as exc:
+            raise EditError(str(exc)) from exc
+        nomi = {"vocals": "Vocals", "drums": "Drums", "bass": "Bass", "other": "Other", "no_vocals": "Instrumental"}
+        ruoli = {"vocals": "vocal", "drums": "drums", "bass": "bass", "other": "", "no_vocals": ""}
+        create = []
+        with self._edit():
+            for chiave, f in stems.items():
+                sa = self._asset_da(f, f"{a.name} {chiave}", ".wav", f"demucs {model} of {a.name}")
+                r = self.add_track(kind="audio", name=f"{nomi[chiave]} ({c.name or a.name})"[:40], role=ruoli[chiave],
+                                   index=self.project.tracks.index(t) + 1 + len(create))
+                n = copy.deepcopy(c)
+                n.id = new_id("C")
+                n.asset = sa.id
+                n.name = nomi[chiave]
+                n.muted = False
+                self.project.track(r["id"]).clips.append(n)
+                create.append({"stem": chiave, "track": r["name"], "track_id": r["id"], "clip": n.id})
+            c.muted = True
+        return {"stems": create, "original_muted": c.id}
+
+    def audio_to_midi(self, clip: str, mode: str = "melody", sound: str | None = None, grid: float = 0.25,
+                      name: str | None = None) -> dict:
+        """Note da un audio: ``melody`` (una voce alla volta: canto, fischio, basso, solista) o
+        ``drums`` (beatbox -> cassa/rullante/charleston). Nuova traccia MIDI allineata alla clip."""
+        if mode not in ("melody", "drums"):
+            raise EditError("mode must be melody or drums")
+        t, c, seg = self._audio_clip(clip)
+        sr = self.project.sample_rate
+        note = trascrivi.melody(seg, sr) if mode == "melody" else trascrivi.drums(seg, sr)
+        if not note:
+            raise EditError("no notes found: is the clip silent, or polyphonic (try separate_stems first)?")
+        spb = self.project.seconds_per_beat
+        battute = [{"pitch": n["pitch"], "start": n["start"] / spb, "length": max(0.05, n["length"] / spb),
+                    "velocity": n["velocity"]} for n in note]
+        if grid:
+            battute = theory.quantize(battute, grid, 1.0, 0.0, lengths=mode == "melody")
+        with self._edit():
+            r = self.add_track(kind="midi", name=name or f"{c.name or 'Audio'} MIDI",
+                               sound=sound or ("acoustic kit" if mode == "drums" else "soft lead"),
+                               role="drums" if mode == "drums" else "lead")
+            nc = Clip(id=new_id("C"), name=name or f"{c.name or 'Audio'} notes", kind="midi", start=c.start,
+                      length=c.length, notes=[self._norm_note(n) for n in battute if n["start"] < c.length])
+            self.project.track(r["id"]).clips.append(nc)
+        return {"track": r["name"], "track_id": r["id"], "clip": nc.id, "notes": len(nc.notes),
+                "range": (f"{theory.pitch_name(min(n.pitch for n in nc.notes))}-"
+                          f"{theory.pitch_name(max(n.pitch for n in nc.notes))}") if nc.notes else ""}
+
+    def convert_voice(self, clip: str, model: str, pitch: int = 0, f0_method: str = "rmvpe", index_rate: float = 0.5,
+                      protect: float = 0.33, autotune: bool = False) -> dict:
+        """La voce di una clip (meglio una voce isolata: separate_stems prima) rifatta con un modello
+        RVC di Applio, per esempio la voce dell'utente. pitch in semitoni (-12 per una voce maschile
+        su una femminile). Nuova traccia; l'originale resta, silenziato."""
+        t, c, seg = self._audio_clip(clip)
+        d = self.assets_dir() / "voice"
+        d.mkdir(parents=True, exist_ok=True)
+        src = d / f"in_{c.id}_{uuid.uuid4().hex[:6]}.wav"
+        audio_io.write(src, seg, self.project.sample_rate, 24)
+        out = d / f"{model}_{c.id}_{uuid.uuid4().hex[:6]}.wav"
+        try:
+            voce.converti(src, out, model, pitch, f0_method, index_rate, protect, autotune)
+        except voce.VoceError as exc:
+            raise EditError(str(exc)) from exc
+        finally:
+            src.unlink(missing_ok=True)
+        with self._edit():
+            a = self._asset_da(out, f"{c.name or 'voice'} ({model})", ".wav", f"applio {model} pitch {pitch}")
+            out.unlink(missing_ok=True)
+            r = self.add_track(kind="audio", name=f"{model} voice"[:40], role="vocal",
+                               index=self.project.tracks.index(t) + 1)
+            nc = Clip(id=new_id("C"), name=f"{c.name or 'voice'} ({model})", kind="audio", start=c.start,
+                      length=c.length, asset=a.id)
+            self.project.track(r["id"]).clips.append(nc)
+            c.muted = True
+        return {"track": r["name"], "track_id": r["id"], "clip": nc.id, "model": model, "original_muted": c.id}
 
     # ---- versioni ------------------------------------------------------
     def _cartella_versioni(self) -> Path:

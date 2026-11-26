@@ -44,7 +44,7 @@ const testo = w.document.body.textContent
 assert.deepEqual(errori, [])
 assert.ok(testo.includes('Chords'), 'track not rendered')
 assert.ok(testo.includes('verse'), 'sections not rendered')
-for (const t of ['Inspector', 'Compose', 'Mixer', 'Assistant', 'Versions']) assert.ok(testo.includes(t), `tab ${t} missing`)
+for (const t of ['Inspector', 'Compose', 'AI', 'Mixer', 'Assistant', 'Versions']) assert.ok(testo.includes(t), `tab ${t} missing`)
 assert.ok(w.document.querySelector('.transport .play'), 'transport missing')
 assert.ok(w.document.querySelector('.clip .mininotes'), 'clip notes missing')
 

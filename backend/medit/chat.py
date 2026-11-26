@@ -58,7 +58,9 @@ _ESCLUSI = {"open_ui", "close_ui", "project_create", "project_open"}
 SENZA_LOCK = {"ask_user", "preview", "analyze_mix", "analyze_audio", "review_song", "get_notes", "memory",
               "remember", "forget", "list_sounds", "list_effects", "list_chains", "instrument_params",
               "music_reference", "snapshots", "compare_versions", "system_info",
-              "use_skill", "read_skill_file", "list_skills"}
+              "use_skill", "read_skill_file", "list_skills", "ai_status", "ai_services", "voice_models",
+              # lavorano minuti: lo Store prende il suo lucchetto solo per scrivere il risultato
+              "generate_song", "generate_audio", "separate_stems", "audio_to_midi", "convert_voice"}
 
 
 class ChatUnavailable(RuntimeError):

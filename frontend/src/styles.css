@@ -247,3 +247,15 @@ button.on { border-color: var(--accent); color: var(--accent); }
 .warning small { display: block; color: var(--dim); }
 .ok { color: var(--ok); }
 .empty { color: var(--dim); }
+
+/* IA */
+.aipanel { padding: 8px 10px; }
+.aipanel section { border-top: 1px solid var(--line); padding-top: 4px; margin-top: 8px; }
+.aipanel section:first-of-type { border-top: none; margin-top: 0; }
+.aipanel h4 { margin: 10px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--dim); display: flex; gap: 5px; align-items: center; }
+.aipanel textarea, .aipanel .wide { width: 100%; margin: 3px 0; }
+.ai-row { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
+.ai-row small { color: var(--dim); max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-row .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); flex: none; }
+.ai-row .dot.ok { background: var(--ok); }
+.ai-service { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin: 6px 0; }

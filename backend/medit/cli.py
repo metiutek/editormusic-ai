@@ -94,6 +94,19 @@ def cmd_effects(a) -> None:
                 print(f"    {k:14} {p['type']:7} default={p['default']} {rng}  {p['desc']}")
 
 
+def cmd_key(a) -> None:
+    from . import cloud
+
+    st = cloud.imposta(a.service, a.key, default=True if a.default else None)
+    _stampa(st["services"][a.service] | {"default": st["default"]})
+
+
+def cmd_ai(a) -> None:
+    from . import ai
+
+    _stampa(ai.status())
+
+
 def cmd_doctor(a) -> None:
     import importlib.util
 
@@ -117,6 +130,19 @@ def cmd_doctor(a) -> None:
 
     ui = (FRONTEND / "index.html").is_file()
     righe.append(("web UI", str(FRONTEND) if ui else "not built: cd frontend && npm ci && npm run build", ui))
+    from . import ai
+
+    st = ai.status()
+    c = st["comfyui"]
+    righe.append(("ComfyUI", c["url"] + (f" (song: {c.get('song_model') or 'no ACE-Step'}, sound: "
+                                          f"{c.get('audio_model') or 'no Stable Audio'})" if c["ok"] else " not running"),
+                  bool(c["ok"])))
+    righe.append(("stems (Demucs)", st["stems"].get("python") or st["stems"]["hint"], st["stems"]["ok"]))
+    v = st["voice"]
+    righe.append(("voice (Applio)", f"{v['path']} - {', '.join(v.get('models') or []) or 'no models'}"
+                  if v.get("path") else v["hint"], v["ok"]))
+    pronti = [k for k, x in st["cloud"]["services"].items() if x["ready"]]
+    righe.append(("online services", ", ".join(pronti) or "none (medit key <service> <key>)", True))
     for nome, val, ok in righe:
         print(f"{'ok ' if ok else '-- '} {nome:18} {val}")
 
@@ -224,6 +250,13 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("effects", help="list effects")
     s.add_argument("-v", "--verbose", action="store_true")
     s.set_defaults(fn=cmd_effects)
+    s = sub.add_parser("key", help="save the API key of an online music service (elevenlabs, replicate)")
+    s.add_argument("service")
+    s.add_argument("key")
+    s.add_argument("--default", action="store_true", help="use it when backend is auto")
+    s.set_defaults(fn=cmd_key)
+    s = sub.add_parser("ai", help="what AI is available here")
+    s.set_defaults(fn=cmd_ai)
     s = sub.add_parser("doctor", help="check what is installed")
     s.set_defaults(fn=cmd_doctor)
 

@@ -30,7 +30,7 @@ from mcp.server.mcpserver import Context, Image, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from PIL import Image as PILImage
 
-from . import __version__, audio_io, memoria, presets, segnalazioni, synth, theory, visual
+from . import __version__, ai, audio_io, cloud, comfy, memoria, presets, segnalazioni, synth, theory, visual, voce
 from . import analyze as analyze_mod
 from . import domande as domande_mod
 from . import effects as fx
@@ -75,6 +75,19 @@ guardata e' una parte non fatta.
    (fill_every), crash a inizio sezione; intro e outro piu' leggere.
 6. Ripeti senza riscrivere: copy_bars (una sezione intera), duplicate_clip,
    loop_bars su una clip.
+
+== IA GENERATIVA ==
+ai_status dice cosa c'e' qui (ComfyUI con ACE-Step / Stable Audio, Demucs,
+Applio, servizi in rete): chiedilo prima di promettere. generate_song fa una
+canzone intera anche cantata (stile + testo: senza lyrics usa i testi delle
+sezioni); generate_audio un loop, uno strumento o un effetto lungo N battute;
+separate_stems divide un audio in voce/batteria/basso/resto; audio_to_midi
+trasforma una voce, un fischio o un beatbox in note; convert_voice rifa' una
+voce con un modello RVC dell'utente (voice_models). Tutto finisce su tracce
+nuove, l'originale resta (silenziato). I servizi in rete costano all'utente:
+backend="auto" li usa solo se ne ha scelto uno come predefinito; nominarne uno
+solo se l'utente lo chiede. La generazione locale su una GPU piccola dura
+minuti: dillo prima.
 
 == MIX ==
 - balance_mix fa il gain staging per ruolo; poi ritocca a gusto: batteria,
@@ -172,7 +185,8 @@ _FUORI_BATCH = {"batch", "preview", "export_audio", "export_stems", "export_midi
                 "redo", "project_create", "project_open", "report_issue", "ask_user", "remember", "forget", "memory",
                 "snapshot", "snapshots", "restore_snapshot", "delete_snapshot", "compare_versions", "analyze_mix",
                 "analyze_audio", "review_song", "auto_master", "system_info", "save_chain", "save_sound",
-                "delete_preset"}
+                "delete_preset", "ai_status", "ai_services", "comfy_settings", "voice_models", "generate_song",
+                "generate_audio", "separate_stems", "convert_voice", "audio_to_midi"}
 
 _CTX: contextvars.ContextVar[Context | None] = contextvars.ContextVar("medit_ctx", default=None)
 BATTITO_S = 15.0
@@ -884,6 +898,101 @@ async def auto_master(target_lufs: float = -14.0, style: str = "streaming", ceil
 
 
 # --------------------------------------------------------------------------
+# IA generativa
+# --------------------------------------------------------------------------
+
+
+@_strumento()
+async def ai_status() -> dict:
+    """What AI is available HERE: song generation (ComfyUI ACE-Step or a cloud service), sound/loop
+    generation (Stable Audio or cloud), stem separation (Demucs), the user's voice models (Applio),
+    audio-to-MIDI (always). Each missing piece says exactly what to install or download."""
+    return await _off(ai.status)
+
+
+@_strumento()
+def ai_services(service: str | None = None, model: str | None = None, default: bool | None = None) -> dict:
+    """Online music services (ElevenLabs Music, Replicate) and which is the default for backend="auto".
+    API keys are NOT set here: the user adds them in the editor (AI services) or with
+    `medit key <service> <key>`; they stay on their computer. model = Replicate model (owner/name)."""
+    if service is None:
+        return cloud.stato()
+    try:
+        return cloud.imposta(service, None, model, None, default)
+    except cloud.CloudError as exc:
+        raise EditError(str(exc)) from exc
+
+
+@_strumento()
+def comfy_settings(url: str | None = None, song_checkpoint: str | None = None,
+                   audio_checkpoint: str | None = None) -> dict:
+    """ComfyUI address and which checkpoints to use for songs (ACE-Step) and sounds (Stable Audio).
+    Empty string = back to automatic."""
+    cfg = comfy.set_config(url=url, song_checkpoint=song_checkpoint, audio_checkpoint=audio_checkpoint)
+    return {k: cfg.get(k) for k in ("url", "song_checkpoint", "audio_checkpoint")}
+
+
+@_strumento()
+def voice_models(applio_path: str | None = None) -> dict:
+    """The user's voice models in Applio (RVC), for convert_voice. applio_path tells medit where Applio is."""
+    if applio_path:
+        try:
+            return voce.imposta(applio_path)
+        except voce.VoceError as exc:
+            raise EditError(str(exc)) from exc
+    return voce.stato()
+
+
+@_strumento()
+async def generate_song(prompt: str, lyrics: str | None = None, seconds: float | None = None, bar: float = 1,
+                        instrumental: bool = False, backend: str = "auto", seed: int = -1, language: str = "en",
+                        name: str | None = None, track: str | None = None, project: str | None = None) -> dict:
+    """Generate a whole song as audio (with sung vocals) on a new audio track. prompt = style tags: genre,
+    mood, instruments, voice ("melancholic indie pop, female breathy vocal, acoustic guitar, 90 BPM").
+    lyrics with section tags "[Verse]\n...\n\n[Chorus]\n..."; omitted = the lyrics of the song's sections.
+    seconds omitted = the length of the song form. Tempo and key come from the song. backend: auto,
+    comfyui (local ACE-Step 1.5), elevenlabs. Takes minutes on a small GPU."""
+    return await _off(_store(project).generate_song, prompt, lyrics, seconds, bar, instrumental, backend, seed,
+                      language, name, track)
+
+
+@_strumento()
+async def generate_audio(prompt: str, bars: float | None = None, seconds: float | None = None, bar: float = 1,
+                         track: str | None = None, backend: str = "auto", seed: int = -1, name: str | None = None,
+                         project: str | None = None) -> dict:
+    """Generate a sound from a description onto an audio track: a drum loop, a texture, an instrument
+    phrase, a riser, an effect. bars = exact length in bars at the song tempo (the tempo goes in the
+    prompt). backend: auto, comfyui (Stable Audio Open, up to 47 s), elevenlabs, replicate."""
+    return await _off(_store(project).generate_audio, prompt, bars, seconds, bar, track, backend, seed, name)
+
+
+@_strumento()
+async def separate_stems(clip: str, two_stems: bool = False, model: str = "htdemucs",
+                         project: str | None = None) -> dict:
+    """Split an audio clip into vocals, drums, bass and other (two_stems=true: vocals + instrumental), one
+    new track per stem at the same position; the original clip is muted, not deleted. Needs Demucs."""
+    return await _off(_store(project).separate_stems, clip, two_stems, model)
+
+
+@_strumento()
+async def audio_to_midi(clip: str, mode: str = "melody", sound: str | None = None, grid: float = 0.25,
+                        name: str | None = None, project: str | None = None) -> dict:
+    """Turn an audio clip into MIDI notes on a new track: mode melody (one line at a time: singing,
+    humming, whistling, a bass, a solo; separate_stems first for a full mix) or drums (beatbox ->
+    kick/snare/hat). grid quantizes in beats (0 = off). Then edit the notes or change the sound."""
+    return await _off(_store(project).audio_to_midi, clip, mode, sound, grid, name)
+
+
+@_strumento()
+async def convert_voice(clip: str, model: str, pitch: int = 0, f0_method: str = "rmvpe", index_rate: float = 0.5,
+                        protect: float = 0.33, autotune: bool = False, project: str | None = None) -> dict:
+    """Re-sing a vocal clip with one of the user's voice models (Applio RVC, see voice_models): e.g. turn
+    a generated vocal into the user's own voice. Works best on an isolated vocal (separate_stems first).
+    pitch in semitones (-12 female -> male, +12 male -> female). New track; the original is muted."""
+    return await _off(_store(project).convert_voice, clip, model, pitch, f0_method, index_rate, protect, autotune)
+
+
+# --------------------------------------------------------------------------
 # import / export
 # --------------------------------------------------------------------------
 
@@ -1082,7 +1191,7 @@ async def system_info() -> dict:
 
     api = sys.modules.get("medit.api")
     return {"medit": __version__, "python": platform.python_version(),
-            "extras": {m: importlib.util.find_spec(m) is not None for m in ("anthropic",)},
+            "extras": {m: importlib.util.find_spec(m) is not None for m in ("anthropic", "demucs")},
             "ffmpeg": audio_io.ffmpeg(),
             "memory": str(memoria.percorso()),
             "ui": api.background_info() if api else None}

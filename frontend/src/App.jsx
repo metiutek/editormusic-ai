@@ -3,6 +3,7 @@
 // aggiorna da sola quando a modificare e' l'agente (WebSocket).
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, connectEvents, op } from './api.js'
+import AiPanel from './AiPanel.jsx'
 import Arrange from './Arrange.jsx'
 import Chat from './Chat.jsx'
 import Compose from './Compose.jsx'
@@ -15,7 +16,7 @@ import { Player } from './player.js'
 import Versions from './Versions.jsx'
 import { fmtPos, fmtTime } from './util.js'
 
-const TABS = [['inspector', 'Inspector'], ['compose', 'Compose'], ['mixer', 'Mixer'], ['chat', 'Assistant'], ['versions', 'Versions']]
+const TABS = [['inspector', 'Inspector'], ['compose', 'Compose'], ['ai', 'AI'], ['mixer', 'Mixer'], ['chat', 'Assistant'], ['versions', 'Versions']]
 const KEYS = ['C', 'C#', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B']
 
 export default function App() {
@@ -81,7 +82,8 @@ export default function App() {
   }, [loopOn, loop?.[0], loop?.[1], spb])
 
   const run = useCallback(async (name, body = {}) => {
-    const lenti = ['auto_master', 'balance_mix', 'add_audio', 'import_midi', 'compare_versions']
+    const lenti = ['auto_master', 'balance_mix', 'add_audio', 'import_midi', 'compare_versions', 'generate_song',
+      'generate_audio', 'separate_stems', 'audio_to_midi', 'convert_voice']
     if (lenti.includes(name)) setBusy(name.replace('_', ' ') + '…')
     try {
       const r = await op(name, body)
@@ -226,6 +228,7 @@ export default function App() {
             {tab === 'inspector' && <Inspector project={project} selection={sel} catalog={catalog} run={run}
               playheadBar={playheadBeat / bpb + 1} onOpenClip={id => setRollClip(id)} analysis={analysis} onAnalyze={analizza} />}
             {tab === 'compose' && <Compose project={project} catalog={catalog} run={run} playheadBar={playheadBeat / bpb + 1} selectedTrack={selectedTrack} />}
+            {tab === 'ai' && <AiPanel project={project} selection={sel} run={run} />}
             {tab === 'mixer' && <Mixer project={project} run={run} selection={sel} setSelection={setSel} analysis={analysis} onAnalyze={analizza} />}
             {tab === 'chat' && <Chat llm={llm} setLlm={setLlm} refsSel={refsSel} docPath={st.path} />}
             {tab === 'versions' && <Versions revision={st.revision} run={run} />}

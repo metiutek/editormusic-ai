@@ -27,7 +27,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import __version__, audio_io, conversazioni, domande, estensioni, llm, memoria, presets, render, synth, theory
+from . import __version__, ai, audio_io, cloud, comfy, conversazioni, domande, estensioni, llm, memoria, presets, render, synth, theory
 from . import chat as chat_mod
 from . import effects as fx
 from .model import AUDIO_EXTS, MEDIA_EXTS, MIDI_EXTS, Project
@@ -59,7 +59,12 @@ OPS = {
     "set_automation", "clear_automation", "balance_mix", "auto_master", "import_midi",
     "snapshot", "snapshots", "restore_snapshot", "delete_snapshot", "compare_versions",
     "get_notes", "undo", "redo",
-}
+} | {"generate_song", "generate_audio", "separate_stems", "audio_to_midi", "convert_voice"}
+
+# lavorano minuti (ComfyUI, rete, Demucs, Applio): fuori dal lucchetto della UI, lo Store
+# prende il suo solo per scrivere il risultato. Intanto l'editor resta usabile.
+LUNGHE = {"generate_song", "generate_audio", "separate_stems", "audio_to_midi", "convert_voice", "auto_master",
+          "balance_mix"}
 
 
 class Session:
@@ -257,6 +262,7 @@ def state() -> dict:
                    "drum_genres": {k: v["desc"] for k, v in theory.DRUM_PATTERNS.items()},
                    "progressions": theory.progressions_for()},
         "chat": llm.stato(),
+        "ai": ai.status(check_comfy=False),
         "mcp": mcp_url(),
         "ffmpeg": bool(audio_io.ffmpeg()),
     }
@@ -329,8 +335,11 @@ def op(name: str, body: dict | None = None) -> dict:
         raise HTTPException(404, f"unknown operation: {name}")
     st = S.need()
     try:
-        with S.lock:
+        if name in LUNGHE:
             result = getattr(st, name)(**dict(body or {}))
+        else:
+            with S.lock:
+                result = getattr(st, name)(**dict(body or {}))
     except TypeError as exc:
         raise HTTPException(400, f"invalid arguments for {name}: {exc}") from exc
     except (EditError, ValueError, KeyError, FileNotFoundError) as exc:
@@ -573,6 +582,39 @@ def domanda_rispondi(qid: str, body: RispostaBody) -> dict:
 # --------------------------------------------------------------------------
 # assistente, preset, memoria
 # --------------------------------------------------------------------------
+
+
+@app.get("/api/ai")
+def ai_stato() -> dict:
+    return ai.status()
+
+
+class ServizioBody(BaseModel):
+    service: str
+    key: str | None = None
+    model: str | None = None
+    default: bool | None = None
+
+
+@app.post("/api/ai/services")
+def ai_servizi(body: ServizioBody) -> dict:
+    """Le chiavi dei servizi in rete arrivano solo da qui (o dalla CLI): mai dagli strumenti MCP."""
+    try:
+        return cloud.imposta(body.service, body.key, body.model, None, body.default)
+    except cloud.CloudError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+class ComfyBody(BaseModel):
+    url: str | None = None
+    song_checkpoint: str | None = None
+    audio_checkpoint: str | None = None
+
+
+@app.post("/api/ai/comfy")
+def ai_comfy(body: ComfyBody) -> dict:
+    comfy.set_config(**body.model_dump())
+    return ai.status()
 
 
 @app.get("/api/llm")

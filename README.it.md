@@ -37,6 +37,7 @@ passo si annulla.
 | **L'agente non sente: guarda e misura** | `preview` restituisce arrangiamento, piano roll o spettrogramma come immagine; `analyze_mix` da' LUFS, true peak, bande e stereo; `review_song` segnala clipping, impasti, durezze, note fuori tonalita', basso nel registro sbagliato, sovrapposizioni — ognuno con lo strumento che lo sistema. |
 | **Mixa e masterizza** | 21 effetti (EQ, compressore, limiter a picco vero, riverbero a convoluzione, delay a tempo, chorus, saturazione, lo-fi, pump…), bus e mandate, automazioni, `balance_mix`, `auto_master` a -14 LUFS / -1 dBTP. |
 | **Lavora coi tuoi file** | Importa WAV, MP3, FLAC, OGG, AIFF (m4a e audio dei video con ffmpeg) con rilevamento di BPM e tonalita'; importa ed esporta MIDI; esporta mix e stem. |
+| **IA generativa, locale o con la tua chiave** | `generate_song` fa una canzone intera cantata da uno stile e dal tuo testo (ACE-Step 1.5 in ComfyUI o ElevenLabs Music); `generate_audio` loop ed effetti lunghi N battute (Stable Audio, Replicate); `separate_stems` divide voce/batteria/basso (Demucs); `audio_to_midi` trasforma canticchiato o beatbox in note; `convert_voice` ricanta una voce con **il tuo modello vocale** (Applio RVC). Tutto su tracce nuove. |
 | **Ti ricorda e ti chiede** | Memoria condivisa fra le canzoni, domande cliccabili nell'editor, versioni confrontabili, chat salvata accanto a ogni canzone. |
 
 ## Da agente (MCP)

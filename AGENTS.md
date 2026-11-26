@@ -49,6 +49,11 @@ backend/medit/
   visual.py      immagini per l'agente: arrangiamento, piano roll, forma d'onda + spettrogramma
   presets.py     suoni e catene pronti (livelli tarati in LUFS) + quelli dell'utente in ~/.medit/presets.json
   audio_io.py    leggere/scrivere audio (soundfile; ffmpeg per m4a/video)   midi_io.py  file .mid
+  ai.py          cosa c'e' di IA e chi la fa (backend auto: ComfyUI, poi solo il servizio predefinito)
+  comfy.py       ComfyUI: ACE-Step 1.5 (canzoni) e Stable Audio (suoni), workflow dai template ufficiali
+  cloud.py       ElevenLabs Music, Replicate; chiavi in ~/.medit/ai_api.json; HTTP solo da _http
+  separa.py      stem con Demucs (processo a parte)   voce.py  Applio/RVC da riga di comando
+  trascrivi.py   audio -> note: YIN per le melodie, attacchi per banda per il beatbox
   store.py       tutte le modifiche + undo/redo + salvataggio atomico + versioni
   mcp_server.py  strumenti MCP          api.py  REST/WebSocket + /mcp per la UI
   chat.py llm.py estensioni.py memoria.py conversazioni.py domande.py segnalazioni.py   come in pedit
@@ -74,6 +79,11 @@ Scelte non ovvie:
 - **Livelli dei suoni tarati** (`presets._CALIBRAZIONE`, rifatta con `scripts/calibra_suoni.py`):
   batteria -19 LUFS, bassi -21, lead -22, tastiere -23, pad -25.
 - **Audio non nativo** (m4a, video): convertito una volta in WAV nella cartella degli asset.
+- **IA lunga fuori dal lucchetto**: `generate_*`, `separate_stems`, `convert_voice` lavorano minuti
+  senza bloccare; lo Store prende `self.lock` solo dentro `_edit` per scrivere il risultato. In
+  `api.LUNGHE` e `chat.SENZA_LOCK`, e fuori da `batch`.
+- **Nei test** ComfyUI e' su una porta chiusa, `MEDIT_APPLIO`/`MEDIT_DEMUCS_PYTHON` puntano al vuoto e
+  `cloud._http` si sostituisce: mai la GPU, la rete o la voce vera di chi li lancia.
 
 Quando modifichi:
 

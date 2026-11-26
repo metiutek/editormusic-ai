@@ -36,6 +36,7 @@ notes stay notes, effects stay editable, imported audio is never rewritten, ever
 | **The agent can't hear, so it looks and measures** | `preview` returns the arrangement, the piano roll or a spectrogram as an image; `analyze_mix` gives LUFS, true peak, band balance and stereo; `review_song` flags clipping, mud, harshness, notes out of key, bass in the wrong register, overlaps — each with the tool that fixes it. |
 | **Mixes and masters** | 21 effects (EQ, compressor, true-peak limiter, convolution reverb, tempo-synced delay, chorus, saturation, lo-fi, pump…), buses and sends, automation, `balance_mix` gain staging, `auto_master` to -14 LUFS / -1 dBTP. |
 | **Works with your files** | Import WAV, MP3, FLAC, OGG, AIFF (m4a and video audio with ffmpeg) with BPM and key detection; import and export MIDI; export mixdown and stems. |
+| **Generative AI, local or with your key** | `generate_song` makes a whole sung song from a style and your lyrics (ACE-Step 1.5 in ComfyUI, or ElevenLabs Music); `generate_audio` makes loops and effects N bars long (Stable Audio, Replicate); `separate_stems` splits vocals/drums/bass (Demucs); `audio_to_midi` turns humming or beatbox into notes; `convert_voice` re-sings a vocal with **your own voice model** (Applio RVC). Everything lands on new tracks. |
 | **Remembers you, and asks** | Shared memory across songs, clickable questions in the editor, versions you can compare, a chat saved next to each song. |
 
 ## Driving it from an agent (MCP)

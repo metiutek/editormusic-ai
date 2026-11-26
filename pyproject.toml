@@ -3,7 +3,7 @@
 # con il comando del server MCP, `uvx medit-mcp` funziona senza --from.
 # Il modulo Python importabile resta `medit`.
 name = "medit-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "Open-source AI music editor (DAW) and MCP server: tracks, MIDI, built-in synths and drums, effects, mixing and mastering. Write songs with an AI agent - chords, beats, bass lines, melodies, lyrics - and fix them by hand."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -68,6 +68,9 @@ dev = ["pytest>=8.0", "httpx>=0.27"]
 # serve solo per l'assistente dentro la UI con una chiave Anthropic; gli altri
 # motori (Claude Code, compatibili OpenAI, Ollama) non vogliono niente
 chat = ["anthropic>=0.40"]
+# separazione in stem (voce, batteria, basso, resto): Demucs porta torch, ~2 GB.
+# Gira in un processo a parte; senza, separate_stems dice cosa installare.
+stems = ["demucs>=4.0"]
 
 [project.scripts]
 medit = "medit.cli:main"
