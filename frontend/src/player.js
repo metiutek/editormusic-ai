@@ -14,6 +14,36 @@ export class Player {
     this.loop = null        // [inizio, fine] in secondi
     this.loading = false
     this.onState = () => {}
+    this.frames = new Set()   // chi disegna il cursore: aggiornato fuori da React
+    this.raf = 0
+  }
+
+  // fn(secondi, playing) a ogni frame mentre suona, e una volta a ogni cambio di stato.
+  // Il cursore si muove senza ridisegnare l'interfaccia.
+  onFrame(fn) {
+    this.frames.add(fn)
+    fn(this.position(), this.playing)
+    return () => this.frames.delete(fn)
+  }
+
+  _emit() {
+    const t = this.position()
+    for (const fn of this.frames) fn(t, this.playing)
+  }
+
+  _loop() {
+    if (this.raf || typeof requestAnimationFrame === 'undefined') return
+    const tick = () => {
+      this._emit()
+      this.raf = this.playing ? requestAnimationFrame(tick) : 0
+    }
+    this.raf = requestAnimationFrame(tick)
+  }
+
+  _changed() {
+    this.onState()
+    this._emit()
+    if (this.playing) this._loop()
   }
 
   _ctx() {
@@ -62,13 +92,13 @@ export class Player {
       if (at < this.loop[0] || at >= this.loop[1]) at = this.loop[0]
     }
     src.connect(ctx.destination)
-    src.onended = () => { if (this.src === src) { this.playing = false; this.offset = 0; this.onState() } }
+    src.onended = () => { if (this.src === src) { this.playing = false; this.offset = 0; this._changed() } }
     src.start(0, Math.max(0, Math.min(at, buf.duration - 0.01)))
     this.src = src
     this.startedAt = ctx.currentTime
     this.offset = at
     this.playing = true
-    this.onState()
+    this._changed()
   }
 
   async play(rev, at = this.offset) {
@@ -85,13 +115,13 @@ export class Player {
     this.src = null
     this.playing = false
     this.offset = reset ? 0 : p
-    this.onState()
+    this._changed()
   }
 
   seek(sec, rev) {
     this.offset = Math.max(0, sec)
     if (this.playing) this.play(rev, this.offset)
-    else this.onState()
+    else this._changed()
   }
 
   // la canzone e' cambiata: se sta suonando, nuovo audio dallo stesso punto

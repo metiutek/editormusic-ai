@@ -1,21 +1,37 @@
 // Mixer: un canale per traccia (volume, pan, mute, solo, misura), il master,
 // e i pulsanti che misurano e sistemano: balance mix, review, auto master.
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from './api.js'
 import { Measures } from './Inspector.jsx'
+import { InlineEdit, useCommitOnRelease } from './Widgets.jsx'
+
+// valore locale mentre si trascina, inviato una volta al rilascio
+function useDrag(value, commit) {
+  const [v, setV] = useState(null)
+  useEffect(() => { setV(null) }, [value])
+  const rel = useCommitOnRelease(x => { if (x !== value) commit(x); else setV(null) })
+  return [v ?? value, {
+    onPointerDown: rel.onPointerDown,
+    onChange: e => { const x = Number(e.target.value); setV(x); rel.set(x) },
+    onKeyUp: e => { const x = Number(e.target.value); if (x !== value) commit(x) },
+    onDoubleClick: e => e.stopPropagation(),
+  }]
+}
 
 function Strip({ t, run, lufs, selected, onSelect }) {
-  const [v, setV] = useState(null)
-  const vol = v ?? t.volume_db
+  const [edit, setEdit] = useState(false)
+  const [vol, volProps] = useDrag(t.volume_db, x => run('set_track', { track: t.id, volume_db: x }))
+  const [pan, panProps] = useDrag(t.pan || 0, x => run('set_track', { track: t.id, pan: x }))
   return (
     <div className={'strip' + (selected ? ' sel' : '')} onClick={onSelect} style={{ '--c': t.color }}>
-      <div className="strip-name" title={t.name}>{t.name}</div>
-      <input type="range" className="pan" min={-1} max={1} step={0.05} defaultValue={t.pan || 0} key={'p' + t.pan}
-        title={`pan ${t.pan || 0}`} onPointerUp={e => run('set_track', { track: t.id, pan: Number(e.target.value) })} />
+      {edit
+        ? <InlineEdit className="strip-edit" value={t.name} onCommit={n => { setEdit(false); run('set_track', { track: t.id, name: n }) }} onCancel={() => setEdit(false)} />
+        : <div className="strip-name" title={t.name + ' · double-click to rename'} onDoubleClick={() => setEdit(true)}>{t.name}</div>}
+      <input type="range" className="pan" min={-1} max={1} step={0.05} value={pan} title={`pan ${pan} · double-click: center`}
+        {...panProps} onDoubleClick={e => { e.stopPropagation(); if (t.pan) run('set_track', { track: t.id, pan: 0 }) }} />
       <div className="fader-wrap">
-        <input type="range" className="fader" min={-60} max={12} step={0.5} value={vol}
-          onChange={e => setV(Number(e.target.value))}
-          onPointerUp={() => { if (v !== null) { run('set_track', { track: t.id, volume_db: v }); setV(null) } }} />
+        <input type="range" className="fader" min={-60} max={12} step={0.5} value={vol} title="double-click: 0 dB"
+          {...volProps} onDoubleClick={e => { e.stopPropagation(); if (t.volume_db) run('set_track', { track: t.id, volume_db: 0 }) }} />
       </div>
       <div className="db">{vol > 0 ? '+' : ''}{vol}</div>
       <div className="row">
@@ -63,10 +79,8 @@ export default function Mixer({ project, run, selection, setSelection, analysis,
         <div className={'strip master' + (!selection ? ' sel' : '')} onClick={() => setSelection(null)}>
           <div className="strip-name">Master</div>
           <div className="fader-wrap">
-            <input type="range" className="fader" min={-24} max={12} step={0.5} defaultValue={project.master.volume_db} key={project.master.volume_db}
-              onPointerUp={e => run('set_master', { volume_db: Number(e.target.value) })} />
+            <MasterFader value={project.master.volume_db} run={run} />
           </div>
-          <div className="db">{project.master.volume_db}</div>
           <div className="hint">{project.master.effects.map(e => e.type).join(' → ') || 'no effects'}</div>
         </div>
       </div>
@@ -77,4 +91,12 @@ export default function Mixer({ project, run, selection, setSelection, analysis,
       </div>}
     </div>
   )
+}
+
+function MasterFader({ value, run }) {
+  const [v, props] = useDrag(value, x => run('set_master', { volume_db: x }))
+  return <>
+    <input type="range" className="fader" min={-24} max={12} step={0.5} value={v} {...props} />
+    <div className="db">{v > 0 ? '+' : ''}{v}</div>
+  </>
 }

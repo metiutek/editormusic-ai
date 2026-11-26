@@ -15,6 +15,7 @@ import PianoRoll from './PianoRoll.jsx'
 import { Player } from './player.js'
 import Splitter, { useSize } from './Splitter.jsx'
 import Versions from './Versions.jsx'
+import { Live } from './Widgets.jsx'
 import { fmtPos, fmtTime } from './util.js'
 
 const TABS = [['inspector', 'Inspector'], ['compose', 'Compose'], ['ai', 'AI'], ['mixer', 'Mixer'], ['chat', 'Assistant'], ['versions', 'Versions']]
@@ -49,6 +50,8 @@ export default function App() {
   const bpb = project ? (project.time_sig[0] * 4) / project.time_sig[1] : 4
   const spb = project ? 60 / project.bpm : 0.5
   const playheadBeat = pos / spb
+  const spbRef = useRef(spb)
+  spbRef.current = spb
 
   const ricarica = useCallback(async () => {
     try { setSt(await api('/api/project')) } catch (e) { setErr(e.message) }
@@ -68,14 +71,16 @@ export default function App() {
     })
   }, [])
 
-  // stato del player -> React
+  // stato del player -> React. Il cursore e l'orologio si muovono da soli (Playhead, Live):
+  // qui la posizione cambia solo a ogni beat, cosi' suonare non ridisegna tutta l'app.
   useEffect(() => {
     const p = player.current
     p.onState = () => { setPlaying(p.playing); setLoading(p.loading); setPos(p.position()) }
-    let raf
-    const tick = () => { if (p.playing) setPos(p.position()); raf = requestAnimationFrame(tick) }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
+    let ultimo = -1
+    return p.onFrame(t => {
+      const b = Math.floor(t / (spbRef.current || 0.5))
+      if (b !== ultimo) { ultimo = b; setPos(t) }
+    })
   }, [])
 
   // la canzone cambia mentre suona: nuovo audio dallo stesso punto
@@ -104,7 +109,10 @@ export default function App() {
     try { await p.play(st.revision, loopOn && loop ? Math.max(p.offset, loop[0] * spb) : p.offset) } catch (e) { setErr(e.message) }
   }
   const stop = () => { player.current.stop(true); setPos(0) }
-  const seek = beat => { player.current.seek(beat * spb, st.revision); setPos(beat * spb) }
+  const revRef = useRef(null)
+  revRef.current = st?.revision
+  const seek = useCallback(beat => { player.current.seek(beat * spbRef.current, revRef.current); setPos(beat * spbRef.current) }, [])
+  const nowBar = () => Math.floor(player.current.position() / spb / bpb) + 1
 
   const analizza = async () => {
     setBusy('measuring…')
@@ -123,6 +131,8 @@ export default function App() {
       else if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); salva() }
       else if (mod && e.key.toLowerCase() === 'd' && sel?.kind === 'clip') { e.preventDefault(); run('duplicate_clip', { clip: sel.id }) }
       else if ((e.key === 'Delete' || e.key === 'Backspace') && sel?.kind === 'clip' && !rollClip) { e.preventDefault(); run('remove_clip', { clip: sel.id }); setSel(null) }
+      else if (e.key === 'Delete' && sel?.kind === 'track' && !rollClip) { e.preventDefault(); run('remove_track', { track: sel.id }); setSel(null) }
+      else if (e.key === 'Escape') { if (rollClip) setRollClip(null); else setSel(null) }
       else if (e.key === 'Home') seek(0)
       else if (e.key === 'l' || e.key === 'L') setLoopOn(x => !x)
     }
@@ -141,7 +151,7 @@ export default function App() {
     if (!e.dataTransfer.files.length) return
     const fd = new FormData()
     for (const f of e.dataTransfer.files) fd.append('files', f)
-    fd.append('bar', String(Math.floor(playheadBeat / bpb) + 1))
+    fd.append('bar', String(nowBar()))
     setBusy('importing…')
     try { setSt(await api('/api/upload', { body: fd })) } catch (x) { setErr(x.message) }
     setBusy('')
@@ -166,6 +176,19 @@ export default function App() {
   if (selectedTrack) refsSel.push({ type: 'track', id: selectedTrack.id, name: selectedTrack.name })
   if (loop) refsSel.push({ type: 'bars', from: loop[0] / bpb + 1, to: loop[1] / bpb, name: `${loop[0] / bpb + 1}-${loop[1] / bpb}` })
 
+  const selectArr = useCallback(s => { setSel(s); if (s) setTab(t => (t === 'compose' && s.kind !== 'track' ? 'inspector' : t)) }, [])
+  const setLoopArr = useCallback(l => { setLoopBeats(l); setLoopOn(true) }, [])
+  const addTrack = useCallback(kind => kind === 'bus' ? run('add_bus', { name: 'Reverb' })
+    : run('add_track', { kind, ...(kind === 'midi' ? { sound: 'piano' } : {}) }), [run])
+  const closeRoll = useCallback(() => setRollClip(null), [])
+  const fit = () => {
+    const el = document.querySelector('.arrange')
+    if (!el || !project) return
+    const beats = Math.max(4, project.bars) * bpb
+    setPpb(Math.max(2, Math.min(200, (el.clientWidth - headW - 30) / beats)))
+    el.scrollLeft = 0
+  }
+
   if (!st) return <div className="loading">{err || 'Loading medit…'}</div>
 
   return (
@@ -185,7 +208,7 @@ export default function App() {
           <button className={'icon-btn play' + (playing ? ' on' : '')} title="Play / pause (Space)" onClick={playPause}>
             <Icon name={playing ? 'pause' : 'play'} /></button>
           <button className={'icon-btn' + (loopOn ? ' on' : '')} title="Loop (L): drag on the ruler to set the region" onClick={() => setLoopOn(!loopOn)}><Icon name="loop" /></button>
-          <span className="clock" title="bar.beat · time">{fmtPos(playheadBeat, bpb)} <small>{fmtTime(pos)}</small></span>
+          <span className="clock" title="bar.beat · time"><Live player={player.current} format={t => `${fmtPos(t / spb, bpb)}  ${fmtTime(t)}`} /></span>
           {loading && <span className="hint">rendering…</span>}
         </div>
         <span className="sep" />
@@ -209,19 +232,19 @@ export default function App() {
           <div className="arr-bar">
             <label>Snap <select value={arrGrid} onChange={e => setArrGrid(Number(e.target.value))}>
               {[[bpb, 'bar'], [1, 'beat'], [0.5, '1/8'], [0.25, '1/16'], [0, 'off']].map(([v, n]) => <option key={n} value={v}>{n}</option>)}</select></label>
-            <button className="icon-btn" title="Zoom out" onClick={() => setPpb(z => Math.max(4, z / 1.3))}>−</button>
-            <button className="icon-btn" title="Zoom in" onClick={() => setPpb(z => Math.min(160, z * 1.3))}>+</button>
-            <span className="hint">{project.bars} bars · {fmtTime(project.duration_s)} · double-click a MIDI track to add a clip, a clip to edit its notes</span>
+            <button className="icon-btn" title="Zoom out (Ctrl+wheel)" onClick={() => setPpb(z => Math.max(2, z / 1.3))}>−</button>
+            <button className="icon-btn" title="Zoom in (Ctrl+wheel)" onClick={() => setPpb(z => Math.min(200, z * 1.3))}>+</button>
+            <button className="icon-btn" title="Fit the whole song" onClick={fit}><Icon name="expand" size={14} /></button>
+            <span className="hint ellipsis">{Math.round(project.bars * 100) / 100} bars · {fmtTime(project.duration_s)} · double-click a name to rename · right-click for more · Ctrl+wheel to zoom</span>
           </div>
-          <Arrange project={project} ppb={ppb} selection={sel} setSelection={s => { setSel(s); if (s) setTab(t => (t === 'compose' && s.kind !== 'track' ? 'inspector' : t)) }}
-            run={run} playhead={playheadBeat} onSeek={seek} loop={loop} setLoop={l => { setLoopBeats(l); setLoopOn(true) }}
-            grid={arrGrid} onOpenClip={id => setRollClip(id)} head={headW} onHead={setHeadW}
-            onAddTrack={kind => kind === 'bus' ? run('add_bus', { name: 'Reverb' }) : run('add_track', { kind, ...(kind === 'midi' ? { sound: 'piano' } : {}) })} />
+          <Arrange project={project} ppb={ppb} setPpb={setPpb} selection={sel} setSelection={selectArr}
+            run={run} player={player.current} spb={spb} onSeek={seek} loop={loop} setLoop={setLoopArr}
+            grid={arrGrid} onOpenClip={setRollClip} head={headW} onHead={setHeadW} onAddTrack={addTrack} />
           {rc && rc.track.kind === 'midi' && <>
             <Splitter dir="y" sign={-1} value={rollH} onChange={setRollH} onReset={() => setRollH(300)}
               title="Drag to resize the piano roll · double-click to reset" />
             <PianoRoll project={project} clip={rc.clip} track={rc.track} run={run} player={player.current} height={rollH}
-              grid={grid} setGrid={setGrid} playhead={playheadBeat} onClose={() => setRollClip(null)} /></>}
+              grid={grid} setGrid={setGrid} spb={spb} onClose={closeRoll} /></>}
           {!project.tracks.length && <div className="empty-song">
             <Icon name="music" size={32} />
             <p>An empty song. Start from <b>Compose</b> (form, chords, drums, bass), drop an audio or MIDI file here,
@@ -250,7 +273,7 @@ export default function App() {
       {dialog === 'open' && <Browse mode="open" home={catalog.home} onClose={() => setDialog(null)}
         onPick={async ([p]) => { setBusy('opening…'); try { setSt(await api('/api/project/open', { body: { path: p } })); setSel(null); setRollClip(null); stop(); setDialog(null) } catch (e) { setErr(e.message) } setBusy('') }} />}
       {dialog === 'import' && <Browse mode="import" home={catalog.home} onClose={() => setDialog(null)}
-        onPick={async paths => { setDialog(null); setBusy('importing…'); try { setSt(await api('/api/import', { body: { paths, bar: Math.floor(playheadBeat / bpb) + 1 } })) } catch (e) { setErr(e.message) } setBusy('') }} />}
+        onPick={async paths => { setDialog(null); setBusy('importing…'); try { setSt(await api('/api/import', { body: { paths, bar: nowBar() } })) } catch (e) { setErr(e.message) } setBusy('') }} />}
       {dialog === 'export' && <Export project={project} home={catalog.home} path={st.path} onClose={() => setDialog(null)}
         onDone={r => { setDialog({ done: r }) }} />}
       {dialog?.done && <Modal title="Exported" onClose={() => setDialog(null)}>

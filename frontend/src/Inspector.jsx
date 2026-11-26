@@ -3,16 +3,19 @@
 import { useEffect, useState } from 'react'
 import Icon from './Icons.jsx'
 import { fmtNum, rangeFor, stepFor, titleCase } from './util.js'
+import { useCommitOnRelease } from './Widgets.jsx'
 
 export function Slider({ label, value, min, max, step, unit = '', onCommit, title }) {
   const [v, setV] = useState(value)
   useEffect(() => { setV(value) }, [value])
+  const rel = useCommitOnRelease(x => x !== value && onCommit(x))
   return (
     <label className="slider" title={title}>
       <span className="sl-label">{label}</span>
       <input type="range" min={min} max={max} step={step} value={v ?? 0}
-        onChange={e => setV(Number(e.target.value))}
-        onPointerUp={() => v !== value && onCommit(v)} onKeyUp={() => v !== value && onCommit(v)} />
+        onPointerDown={rel.onPointerDown}
+        onChange={e => { const x = Number(e.target.value); setV(x); rel.set(x) }}
+        onKeyUp={() => v !== value && onCommit(v)} />
       <input className="sl-num" type="number" step={step} value={v ?? 0} onChange={e => setV(Number(e.target.value))}
         onBlur={() => v !== value && onCommit(v)} onKeyDown={e => e.key === 'Enter' && v !== value && onCommit(v)} />
       {unit && <span className="unit">{unit}</span>}
