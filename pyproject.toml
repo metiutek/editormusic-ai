@@ -1,0 +1,95 @@
+[project]
+# Il nome sul pacchetto e' "medit-mcp", come "vedit-mcp" e "pedit-mcp": coincidendo
+# con il comando del server MCP, `uvx medit-mcp` funziona senza --from.
+# Il modulo Python importabile resta `medit`.
+name = "medit-mcp"
+version = "0.1.0"
+description = "Open-source AI music editor (DAW) and MCP server: tracks, MIDI, built-in synths and drums, effects, mixing and mastering. Write songs with an AI agent - chords, beats, bass lines, melodies, lyrics - and fix them by hand."
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = [
+    "music", "daw", "music-editor", "music-production", "ai-music", "song-writing", "composition",
+    "midi", "synthesizer", "drum-machine", "beat-maker", "mixing", "mastering", "loudness", "lufs",
+    "mcp", "mcp-server", "model-context-protocol", "ai-agent", "agentic-ai", "claude", "claude-code",
+    "cursor", "audio", "audio-editor", "piano-roll", "chord-progression", "music-theory",
+]
+authors = [{ name = "metiu1" }]
+license = { text = "MIT" }
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Natural Language :: Italian",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Framework :: FastAPI",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Multimedia :: Sound/Audio :: Editors",
+    "Topic :: Multimedia :: Sound/Audio :: MIDI",
+    "Topic :: Multimedia :: Sound/Audio :: Sound Synthesis",
+    "Topic :: Artistic Software",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "mcp>=2.0.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "python-multipart>=0.0.9",
+    "pydantic>=2.0",
+    # il motore: sintesi, effetti, mix e misure stanno su numpy e scipy
+    # (filtri, convoluzione, ricampionamento). Non sono extra, sono l'editor.
+    "numpy>=1.24",
+    "scipy>=1.10",
+    # leggere e scrivere WAV, FLAC, OGG, AIFF e MP3 (libsndfile dentro la ruota)
+    "soundfile>=0.12.1",
+    # file .mid
+    "mido>=1.3",
+    # le immagini che l'agente guarda (arrangiamento, piano roll, spettrogramma)
+    "pillow>=10.0",
+    # importato direttamente da mcp_server, non solo di rimbalzo da mcp
+    "anyio>=4.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/metiutek/editormusic-ai"
+Source = "https://github.com/metiutek/editormusic-ai"
+Issues = "https://github.com/metiutek/editormusic-ai/issues"
+Documentation = "https://github.com/metiutek/editormusic-ai#readme"
+Changelog = "https://github.com/metiutek/editormusic-ai/commits/main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "httpx>=0.27"]
+# serve solo per l'assistente dentro la UI con una chiave Anthropic; gli altri
+# motori (Claude Code, compatibili OpenAI, Ollama) non vogliono niente
+chat = ["anthropic>=0.40"]
+
+[project.scripts]
+medit = "medit.cli:main"
+medit-mcp = "medit.mcp_server:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["backend"]
+
+# L'interfaccia compilata viaggia dentro il pacchetto: chi installa da PyPI non
+# ha Node per compilarla. La copia scripts/build_wheel.py da frontend/dist.
+[tool.setuptools.package-data]
+medit = ["webui/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: render lunghi",
+]
+
+[tool.ruff]
+line-length = 130

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "medit": {
+      "command": "medit-mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}
