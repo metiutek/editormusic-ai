@@ -9,7 +9,7 @@ const RH = 13          // altezza di una riga
 const KEYS = 64        // larghezza della tastiera
 const LO = 21, HI = 108
 
-export default function PianoRoll({ project, clip, track, run, player, grid, setGrid, playhead, onClose }) {
+export default function PianoRoll({ project, clip, track, run, player, grid, setGrid, playhead, onClose, height }) {
   const bpb = (project.time_sig[0] * 4) / project.time_sig[1]
   const drums = track?.instrument_type === 'drums'
   const [notes, setNotes] = useState(() => notesFromList(clip.note_list))
@@ -135,7 +135,7 @@ export default function PianoRoll({ project, clip, track, run, player, grid, set
   const rel = playhead - (clip.bar - 1) * bpb
 
   return (
-    <div className="roll">
+    <div className="roll" style={height ? { height } : undefined}>
       <div className="roll-bar">
         <b>{clip.name}</b><span className="hint">{track?.name} · bar {clip.bar} · {notes.length} notes{sel.size ? ` · ${sel.size} selected` : ''}</span>
         <span className="grow" />

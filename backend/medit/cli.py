@@ -101,6 +101,18 @@ def cmd_key(a) -> None:
     _stampa(st["services"][a.service] | {"default": st["default"]})
 
 
+def cmd_uvr(a) -> None:
+    from . import uvr, voce
+
+    if a.azione == "install":
+        r = voce.radice()
+        py = str(voce._python(r)) if r else None
+        print(f"base environment: {'Applio (' + py + ')' if py else 'this Python (Applio not found: torch will be downloaded)'}")
+        _stampa(uvr.installa(py))
+    else:
+        _stampa({**uvr.stato(), "models": uvr.modelli()})
+
+
 def cmd_ai(a) -> None:
     from . import ai
 
@@ -137,6 +149,9 @@ def cmd_doctor(a) -> None:
     righe.append(("ComfyUI", c["url"] + (f" (song: {c.get('song_model') or 'no ACE-Step'}, sound: "
                                           f"{c.get('audio_model') or 'no Stable Audio'})" if c["ok"] else " not running"),
                   bool(c["ok"])))
+    u = st["uvr"]
+    righe.append(("stems (UVR)", (u["python"] if u["ok"] else u["hint"]) + f" - models: {', '.join(u['models']) or 'none'}",
+                  u["ok"]))
     righe.append(("stems (Demucs)", st["stems"].get("python") or st["stems"]["hint"], st["stems"]["ok"]))
     v = st["voice"]
     righe.append(("voice (Applio)", f"{v['path']} - {', '.join(v.get('models') or []) or 'no models'}"
@@ -255,6 +270,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("key")
     s.add_argument("--default", action="store_true", help="use it when backend is auto")
     s.set_defaults(fn=cmd_key)
+    s = sub.add_parser("uvr", help="Ultimate Vocal Remover models: list them, or install the runner")
+    s.add_argument("azione", choices=["models", "install"], nargs="?", default="models")
+    s.set_defaults(fn=cmd_uvr)
     s = sub.add_parser("ai", help="what AI is available here")
     s.set_defaults(fn=cmd_ai)
     s = sub.add_parser("doctor", help="check what is installed")

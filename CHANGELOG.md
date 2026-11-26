@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0 — 2026-11-26
+
+- Modelli di **Ultimate Vocal Remover** (MDX-Net, VR, MDX23C, Roformer): `separate_stems(engine="uvr")`
+  usa quelli di UVR installato; `stem_models` li elenca; `medit uvr install` crea il runner sopra
+  l'ambiente di Applio (riusa torch con CUDA, Applio non viene toccato).
+- **Applio dentro medit**: `convert_voice` con tutte le opzioni (metodo f0, index, protect, autotune,
+  riduzione rumore, formanti, split); `voice_cover` = UVR voce/base -> tua voce -> sulla base;
+  `applio_ui` avvia l'interfaccia di Applio e la mostra in un riquadro dell'editor.
+- **Pannelli ridimensionabili** (laterale, piano roll, nomi delle tracce; la misura resta) e **allegati in
+  chat** (graffetta, trascina, incolla: audio, MIDI, testi letti dall'assistente, immagini).
+
 ## 0.2.0 — 2026-11-26
 
 IA generativa, sempre non distruttiva (tracce nuove, originale solo silenziato):

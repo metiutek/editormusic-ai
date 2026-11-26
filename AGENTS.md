@@ -52,7 +52,10 @@ backend/medit/
   ai.py          cosa c'e' di IA e chi la fa (backend auto: ComfyUI, poi solo il servizio predefinito)
   comfy.py       ComfyUI: ACE-Step 1.5 (canzoni) e Stable Audio (suoni), workflow dai template ufficiali
   cloud.py       ElevenLabs Music, Replicate; chiavi in ~/.medit/ai_api.json; HTTP solo da _http
-  separa.py      stem con Demucs (processo a parte)   voce.py  Applio/RVC da riga di comando
+  separa.py      stem con Demucs (processo a parte)
+  uvr.py         modelli di Ultimate Vocal Remover via audio-separator, in ~/.medit/uvr-env creato
+                 sopra l'ambiente di Applio (`medit uvr install`); modelli dalle cartelle di UVR installato
+  voce.py        Applio/RVC da riga di comando (tutte le opzioni di infer) + la sua interfaccia avviata da medit
   trascrivi.py   audio -> note: YIN per le melodie, attacchi per banda per il beatbox
   store.py       tutte le modifiche + undo/redo + salvataggio atomico + versioni
   mcp_server.py  strumenti MCP          api.py  REST/WebSocket + /mcp per la UI

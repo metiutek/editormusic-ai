@@ -28,7 +28,7 @@ from typing import Any
 
 import numpy as np
 
-from . import ai, analyze, audio_io, cloud, comfy, midi_io, presets, render, separa, synth, theory, trascrivi, voce
+from . import ai, analyze, audio_io, cloud, comfy, midi_io, presets, render, separa, synth, theory, trascrivi, uvr, voce
 from . import effects as fx
 from .model import (
     AUDIO_EXTS,
@@ -1737,36 +1737,73 @@ class Store:
             r = self.add_audio(asset=a.id, track=track, bar=bar, bars=bars, name=name or prompt.strip()[:30])
         return {**r, "backend": motore, "seconds": round(a.duration, 2)}
 
-    def separate_stems(self, clip: str, two_stems: bool = False, model: str = "htdemucs") -> dict:
-        """Divide una clip audio in voce, batteria, basso e resto (o voce + base): una traccia per
-        stem nella stessa posizione, la clip originale resta ma silenziata."""
+    # nomi e ruoli delle tracce per gli stem di Demucs e di UVR
+    _STEM_NOMI = {"vocals": ("Vocals", "vocal"), "drums": ("Drums", "drums"), "bass": ("Bass", "bass"),
+                  "other": ("Other", ""), "no_vocals": ("Instrumental", ""), "instrumental": ("Instrumental", ""),
+                  "piano": ("Piano", "chords"), "guitar": ("Guitar", "chords"), "no noise": ("Clean", "vocal"),
+                  "noise": ("Noise", "fx"), "no reverb": ("Dry", ""), "reverb": ("Reverb", "fx"),
+                  "no echo": ("Dry", ""), "echo": ("Echo", "fx"), "backing vocals": ("Backing vocals", "vocal"),
+                  "lead vocals": ("Lead vocal", "vocal")}
+
+    def stem_engines(self) -> dict:
+        """Motori di separazione disponibili e i modelli UVR sul disco."""
+        return {"uvr": {**uvr.stato(), "models": uvr.modelli()}, "demucs": separa.stato()}
+
+    def _motore_stem(self, engine: str) -> str:
+        if engine not in ("auto", "uvr", "demucs"):
+            raise EditError("engine must be auto, uvr or demucs")
+        if engine == "auto":
+            if uvr.python():
+                return "uvr"
+            if separa.python():
+                return "demucs"
+            raise EditError("no stem separator: " + uvr.stato()["hint"] + "; or " + separa.stato()["hint"])
+        return engine
+
+    def separate_stems(self, clip: str, two_stems: bool = False, model: str | None = None,
+                       engine: str = "auto") -> dict:
+        """Divide una clip audio negli stem del modello: con UVR (i modelli di Ultimate Vocal Remover:
+        voce/base, rumore, riverbero...) o con Demucs (voce, batteria, basso, resto). Una traccia per
+        stem nella stessa posizione; la clip originale resta, silenziata."""
         t, c = self._clip(clip)
         if c.kind != "audio" or not c.asset:
             raise EditError(f"{c.name or c.id} is not an audio clip")
+        motore = self._motore_stem(engine)
         a = self.project.asset(c.asset)
         src = render.resolve(a.path, self.base_dir)
-        cartella = self.assets_dir() / "stems" / f"{a.id}_{model}{'_2' if two_stems else ''}"
-        try:
-            stems = separa.separa(src, cartella, two_stems, model)
-        except separa.SeparaError as exc:
-            raise EditError(str(exc)) from exc
-        nomi = {"vocals": "Vocals", "drums": "Drums", "bass": "Bass", "other": "Other", "no_vocals": "Instrumental"}
-        ruoli = {"vocals": "vocal", "drums": "drums", "bass": "bass", "other": "", "no_vocals": ""}
+        if motore == "uvr":
+            nome_modello, _ = uvr.scegli(model)
+            cartella = self.assets_dir() / "stems" / f"{a.id}_uvr_{Path(nome_modello).stem}"
+            gia = sorted(cartella.glob("*.wav")) if cartella.is_dir() else []
+            try:
+                stems = ({uvr._nome_stem(f): f for f in gia} if gia else uvr.separa(src, cartella, nome_modello))
+            except uvr.UvrError as exc:
+                raise EditError(str(exc)) from exc
+            origine = f"uvr {nome_modello} of {a.name}"
+        else:
+            nome_modello = model or "htdemucs"
+            cartella = self.assets_dir() / "stems" / f"{a.id}_{nome_modello}{'_2' if two_stems else ''}"
+            try:
+                stems = separa.separa(src, cartella, two_stems, nome_modello)
+            except separa.SeparaError as exc:
+                raise EditError(str(exc)) from exc
+            origine = f"demucs {nome_modello} of {a.name}"
         create = []
         with self._edit():
             for chiave, f in stems.items():
-                sa = self._asset_da(f, f"{a.name} {chiave}", ".wav", f"demucs {model} of {a.name}")
-                r = self.add_track(kind="audio", name=f"{nomi[chiave]} ({c.name or a.name})"[:40], role=ruoli[chiave],
+                nome, ruolo = self._STEM_NOMI.get(chiave.lower(), (chiave.title(), ""))
+                sa = self._asset_da(f, f"{a.name} {nome}", ".wav", origine)
+                r = self.add_track(kind="audio", name=f"{nome} ({c.name or a.name})"[:40], role=ruolo,
                                    index=self.project.tracks.index(t) + 1 + len(create))
                 n = copy.deepcopy(c)
                 n.id = new_id("C")
                 n.asset = sa.id
-                n.name = nomi[chiave]
+                n.name = nome
                 n.muted = False
                 self.project.track(r["id"]).clips.append(n)
-                create.append({"stem": chiave, "track": r["name"], "track_id": r["id"], "clip": n.id})
+                create.append({"stem": chiave, "track": r["name"], "track_id": r["id"], "clip": n.id, "role": ruolo})
             c.muted = True
-        return {"stems": create, "original_muted": c.id}
+        return {"engine": motore, "model": nome_modello, "stems": create, "original_muted": c.id}
 
     def audio_to_midi(self, clip: str, mode: str = "melody", sound: str | None = None, grid: float = 0.25,
                       name: str | None = None) -> dict:
@@ -1796,7 +1833,9 @@ class Store:
                           f"{theory.pitch_name(max(n.pitch for n in nc.notes))}") if nc.notes else ""}
 
     def convert_voice(self, clip: str, model: str, pitch: int = 0, f0_method: str = "rmvpe", index_rate: float = 0.5,
-                      protect: float = 0.33, autotune: bool = False) -> dict:
+                      protect: float = 0.33, autotune: bool = False, autotune_strength: float = 1.0,
+                      clean: bool = False, clean_strength: float = 0.7, split_audio: bool = False,
+                      formant_shift: float = 0.0, volume_envelope: float = 1.0, embedder: str = "contentvec") -> dict:
         """La voce di una clip (meglio una voce isolata: separate_stems prima) rifatta con un modello
         RVC di Applio, per esempio la voce dell'utente. pitch in semitoni (-12 per una voce maschile
         su una femminile). Nuova traccia; l'originale resta, silenziato."""
@@ -1807,7 +1846,8 @@ class Store:
         audio_io.write(src, seg, self.project.sample_rate, 24)
         out = d / f"{model}_{c.id}_{uuid.uuid4().hex[:6]}.wav"
         try:
-            voce.converti(src, out, model, pitch, f0_method, index_rate, protect, autotune)
+            voce.converti(src, out, model, pitch, f0_method, index_rate, protect, autotune, autotune_strength, clean,
+                          clean_strength, split_audio, formant_shift, volume_envelope, embedder)
         except voce.VoceError as exc:
             raise EditError(str(exc)) from exc
         finally:
@@ -1822,6 +1862,21 @@ class Store:
             self.project.track(r["id"]).clips.append(nc)
             c.muted = True
         return {"track": r["name"], "track_id": r["id"], "clip": nc.id, "model": model, "original_muted": c.id}
+
+    def voice_cover(self, clip: str, model: str, pitch: int = 0, uvr_model: str | None = None,
+                    engine: str = "auto", **opzioni) -> dict:
+        """Il flusso UVR -> Applio in un colpo: separa voce e base della clip, rifa' la voce con il
+        modello dell'utente e la rimette sulla base. Restano tutte le tracce (originale, stem, voce
+        nuova), cosi' si torna indietro su ogni passo; suonano la base e la voce nuova."""
+        motore = self._motore_stem(engine)
+        s = self.separate_stems(clip, two_stems=True, model=uvr_model if motore == "uvr" else None, engine=motore)
+        voci = [x for x in s["stems"] if x["role"] == "vocal"]
+        if not voci:
+            raise EditError(f"the separation gave no vocal stem ({', '.join(x['stem'] for x in s['stems'])}): "
+                            "pick a vocals/instrumental model")
+        v = self.convert_voice(voci[0]["clip"], model, pitch, **opzioni)
+        return {"stems": s["stems"], "voice": v, "engine": s["engine"], "model": s["model"],
+                "note": "playing: instrumental + converted voice; the original and the separated vocal are muted"}
 
     # ---- versioni ------------------------------------------------------
     def _cartella_versioni(self) -> Path:

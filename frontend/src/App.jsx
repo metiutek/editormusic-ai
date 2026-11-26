@@ -13,6 +13,7 @@ import Inspector from './Inspector.jsx'
 import Mixer from './Mixer.jsx'
 import PianoRoll from './PianoRoll.jsx'
 import { Player } from './player.js'
+import Splitter, { useSize } from './Splitter.jsx'
 import Versions from './Versions.jsx'
 import { fmtPos, fmtTime } from './util.js'
 
@@ -39,6 +40,9 @@ export default function App() {
   const [loopOn, setLoopOn] = useState(false)
   const [loop, setLoopBeats] = useState(null)
   const [analysis, setAnalysis] = useState(null)
+  const [sideW, setSideW] = useSize('side', 360, 280, 900)
+  const [rollH, setRollH] = useSize('roll', 300, 140, 900)
+  const [headW, setHeadW] = useSize('head', 190, 120, 400)
   const player = useRef(null)
   if (!player.current) player.current = new Player()
   const project = st?.project
@@ -200,7 +204,7 @@ export default function App() {
       </div>
       {err && <div className="errbar" onClick={() => setErr('')}>{err} <small>(click to close)</small></div>}
 
-      <div className="main">
+      <div className="main" style={{ gridTemplateColumns: `1fr 6px ${sideW}px` }}>
         <div className="center">
           <div className="arr-bar">
             <label>Snap <select value={arrGrid} onChange={e => setArrGrid(Number(e.target.value))}>
@@ -211,10 +215,13 @@ export default function App() {
           </div>
           <Arrange project={project} ppb={ppb} selection={sel} setSelection={s => { setSel(s); if (s) setTab(t => (t === 'compose' && s.kind !== 'track' ? 'inspector' : t)) }}
             run={run} playhead={playheadBeat} onSeek={seek} loop={loop} setLoop={l => { setLoopBeats(l); setLoopOn(true) }}
-            grid={arrGrid} onOpenClip={id => setRollClip(id)}
+            grid={arrGrid} onOpenClip={id => setRollClip(id)} head={headW} onHead={setHeadW}
             onAddTrack={kind => kind === 'bus' ? run('add_bus', { name: 'Reverb' }) : run('add_track', { kind, ...(kind === 'midi' ? { sound: 'piano' } : {}) })} />
-          {rc && rc.track.kind === 'midi' && <PianoRoll project={project} clip={rc.clip} track={rc.track} run={run} player={player.current}
-            grid={grid} setGrid={setGrid} playhead={playheadBeat} onClose={() => setRollClip(null)} />}
+          {rc && rc.track.kind === 'midi' && <>
+            <Splitter dir="y" sign={-1} value={rollH} onChange={setRollH} onReset={() => setRollH(300)}
+              title="Drag to resize the piano roll · double-click to reset" />
+            <PianoRoll project={project} clip={rc.clip} track={rc.track} run={run} player={player.current} height={rollH}
+              grid={grid} setGrid={setGrid} playhead={playheadBeat} onClose={() => setRollClip(null)} /></>}
           {!project.tracks.length && <div className="empty-song">
             <Icon name="music" size={32} />
             <p>An empty song. Start from <b>Compose</b> (form, chords, drums, bass), drop an audio or MIDI file here,
@@ -222,6 +229,8 @@ export default function App() {
             <div className="row"><button onClick={() => setTab('compose')}>Compose</button><button onClick={() => setTab('chat')}>Assistant</button></div>
           </div>}
         </div>
+        <Splitter dir="x" sign={-1} value={sideW} onChange={setSideW} onReset={() => setSideW(360)}
+          title="Drag to resize the side panel · double-click to reset" />
         <div className="side">
           <div className="tabs">{TABS.map(([k, n]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{n}</button>)}</div>
           <div className="tab-body">

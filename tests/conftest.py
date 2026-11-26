@@ -26,6 +26,8 @@ def _home(tmp_path, monkeypatch):
     monkeypatch.setenv("MEDIT_COMFY_URL", "http://127.0.0.1:9")
     monkeypatch.setenv("MEDIT_APPLIO", str(tmp_path / "no_applio"))
     monkeypatch.setenv("MEDIT_DEMUCS_PYTHON", str(tmp_path / "no_python.exe"))
+    monkeypatch.setenv("MEDIT_UVR_PYTHON", str(tmp_path / "no_uvr_python.exe"))
+    monkeypatch.setenv("MEDIT_UVR_MODELS", str(tmp_path / "no_uvr_models"))
     for k in ("ELEVENLABS_API_KEY", "REPLICATE_API_TOKEN"):
         monkeypatch.delenv(k, raising=False)
     render.clear_cache()

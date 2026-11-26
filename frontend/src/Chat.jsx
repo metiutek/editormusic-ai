@@ -154,7 +154,22 @@ export default function Chat({ llm, setLlm, refsSel, docPath }) {
   const [showSettings, setShowSettings] = useState(!llm?.ok)
   const [menu, setMenu] = useState(false)
   const [memoria, setMemoria] = useState(false)
+  const [sopra, setSopra] = useState(false)
+  const [errAll, setErrAll] = useState('')
+  const fileRef = useRef(null)
   const endRef = useRef(null)
+  // file allegati: copiati accanto alla canzone, all'assistente arriva il percorso (e il testo dei .txt)
+  const allega = async lista => {
+    const files = [...(lista || [])]
+    if (!files.length) return
+    const fd = new FormData()
+    for (const f of files) fd.append('files', f)
+    try {
+      const r = await api('/api/chat/allega', { body: fd })
+      setRefs(x => [...x, ...r.files])
+      setErrAll('')
+    } catch (e) { setErrAll(e.message) }
+  }
   useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }) }, [msgs])
   // ogni documento ha la sua chat, salvata accanto al file: riaprendolo torna
   useEffect(() => {
@@ -185,18 +200,22 @@ export default function Chat({ llm, setLlm, refsSel, docPath }) {
 
   const send = async () => {
     const q = text.trim()
-    if (!q || busy) return
+    if ((!q && !refs.length) || busy) return
     setText('')
-    setMsgs(m => [...m, { role: 'user', text: q, refs }])
+    const domanda = q || 'Look at the attached files.'
+    setMsgs(m => [...m, { role: 'user', text: domanda, refs }])
     setBusy(true)
     const r = refs
     setRefs([])
-    try { await chatStream({ question: q, refs: r }, push) } catch (e) { push({ type: 'error', message: e.message }) }
+    try { await chatStream({ question: domanda, refs: r }, push) } catch (e) { push({ type: 'error', message: e.message }) }
     setBusy(false)
   }
 
   return (
-    <div className="chat">
+    <div className={'chat' + (sopra ? ' drop' : '')}
+      onDragOver={e => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.stopPropagation(); setSopra(true) } }}
+      onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setSopra(false) }}
+      onDrop={e => { if (e.dataTransfer.files.length) { e.preventDefault(); e.stopPropagation(); setSopra(false); allega(e.dataTransfer.files) } }}>
       <div className="chat-top">
         <button className={'modelpill' + (llm?.ok ? '' : ' bad') + (menu ? ' on' : '')} title={llm?.motivo || 'Model and effort'}
           onClick={() => llm?.ok ? setMenu(!menu) : setShowSettings(true)}>
@@ -219,16 +238,24 @@ export default function Chat({ llm, setLlm, refsSel, docPath }) {
           ? <details key={i} className={'tool ' + m.status}><summary>{m.status === 'run' ? '⋯' : m.status === 'ok' ? '✓' : '✕'} {m.name}</summary>
             <pre>{JSON.stringify(m.input, null, 1)}</pre>{m.error && <p className="warn">{m.error}</p>}</details>
           : <div key={i} className={'msg ' + m.role}>{m.text}
-            {m.refs?.length > 0 && <div className="refs">{m.refs.map((r, j) => <span key={j} className="tag">[{j + 1}] {r.type}</span>)}</div>}</div>)}
+            {m.refs?.length > 0 && <div className="refs">{m.refs.map((r, j) => <span key={j} className="tag">[{j + 1}] {r.type === 'file' ? `📎 ${r.name}` : r.type}</span>)}</div>}</div>)}
         <div ref={endRef} />
       </div>
       <div className="chat-refs">
         {(refsSel || []).map(r => <button key={r.type + (r.id || '')} title={`Point at the selected ${r.type}`}
           onClick={() => setRefs(x => [...x, r])}>+ {r.type}{r.name ? ` ${r.name}` : ''}</button>)}
-        {refs.map((r, i) => <span key={i} className="tag" onClick={() => setRefs(x => x.filter((_, j) => j !== i))}>[{i + 1}] {r.type} ✕</span>)}
+        {refs.map((r, i) => <span key={i} className={'tag' + (r.type === 'file' ? ' file' : '')} title={r.path || ''}
+          onClick={() => setRefs(x => x.filter((_, j) => j !== i))}>[{i + 1}] {r.type === 'file' ? `📎 ${r.name}` : r.type} ✕</span>)}
+        {errAll && <span className="warn">{errAll}</span>}
       </div>
       <div className="chat-input">
-        <textarea rows={3} value={text} placeholder="What should the song do?" onChange={e => setText(e.target.value)}
+        <button className="icon-btn" title="Attach files: audio, MIDI, lyrics (.txt), images — or drop / paste them here"
+          onClick={() => fileRef.current?.click()}><Icon name="clip" /></button>
+        <input ref={fileRef} type="file" multiple hidden
+          accept=".wav,.mp3,.flac,.ogg,.aif,.aiff,.m4a,.aac,.opus,.mp4,.mov,.mkv,.webm,.mid,.midi,.txt,.md,.lrc,.srt,.json,.csv,.png,.jpg,.jpeg,.webp,.gif,.pdf"
+          onChange={e => { allega(e.target.files); e.target.value = '' }} />
+        <textarea rows={3} value={text} placeholder="What should the song do? (drop files here to attach them)" onChange={e => setText(e.target.value)}
+          onPaste={e => { if (e.clipboardData.files.length) { e.preventDefault(); allega(e.clipboardData.files) } }}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} />
         {busy
           ? <button className="icon-btn big" title="Stop" onClick={() => api('/api/chat/stop', { body: {} })}><Icon name="stop" /></button>

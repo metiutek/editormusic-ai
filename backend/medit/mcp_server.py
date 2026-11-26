@@ -81,7 +81,9 @@ ai_status dice cosa c'e' qui (ComfyUI con ACE-Step / Stable Audio, Demucs,
 Applio, servizi in rete): chiedilo prima di promettere. generate_song fa una
 canzone intera anche cantata (stile + testo: senza lyrics usa i testi delle
 sezioni); generate_audio un loop, uno strumento o un effetto lungo N battute;
-separate_stems divide un audio in voce/batteria/basso/resto; audio_to_midi
+separate_stems divide un audio negli stem (motore uvr: i modelli di Ultimate
+Vocal Remover dell'utente, stem_models li elenca; demucs: voce/batteria/basso/
+resto); voice_cover fa in un colpo UVR -> voce dell'utente sulla base; audio_to_midi
 trasforma una voce, un fischio o un beatbox in note; convert_voice rifa' una
 voce con un modello RVC dell'utente (voice_models). Tutto finisce su tracce
 nuove, l'originale resta (silenziato). I servizi in rete costano all'utente:
@@ -186,7 +188,8 @@ _FUORI_BATCH = {"batch", "preview", "export_audio", "export_stems", "export_midi
                 "snapshot", "snapshots", "restore_snapshot", "delete_snapshot", "compare_versions", "analyze_mix",
                 "analyze_audio", "review_song", "auto_master", "system_info", "save_chain", "save_sound",
                 "delete_preset", "ai_status", "ai_services", "comfy_settings", "voice_models", "generate_song",
-                "generate_audio", "separate_stems", "convert_voice", "audio_to_midi"}
+                "generate_audio", "separate_stems", "convert_voice", "audio_to_midi", "voice_cover", "stem_models",
+                "applio_ui"}
 
 _CTX: contextvars.ContextVar[Context | None] = contextvars.ContextVar("medit_ctx", default=None)
 BATTITO_S = 15.0
@@ -967,11 +970,25 @@ async def generate_audio(prompt: str, bars: float | None = None, seconds: float 
 
 
 @_strumento()
-async def separate_stems(clip: str, two_stems: bool = False, model: str = "htdemucs",
+async def separate_stems(clip: str, engine: str = "auto", model: str | None = None, two_stems: bool = False,
                          project: str | None = None) -> dict:
-    """Split an audio clip into vocals, drums, bass and other (two_stems=true: vocals + instrumental), one
-    new track per stem at the same position; the original clip is muted, not deleted. Needs Demucs."""
-    return await _off(_store(project).separate_stems, clip, two_stems, model)
+    """Split an audio clip into stems, one new track each at the same position; the original is muted, not
+    deleted. engine uvr = Ultimate Vocal Remover models (the user's UVR models: vocals/instrumental with
+    MDX-Net or Roformer, noise or reverb removal with VR models; see stem_models), demucs = vocals, drums,
+    bass, other (two_stems=true: vocals + instrumental). auto prefers UVR."""
+    return await _off(_store(project).separate_stems, clip, two_stems, model, engine)
+
+
+@_strumento()
+def stem_models() -> dict:
+    """Stem separators available and the Ultimate Vocal Remover models on disk (name, architecture, use:
+    vocals/instrumental, noise removal, reverb removal...). A model not on disk can still be named: it is
+    downloaded on first use."""
+    from . import separa as _separa
+    from . import uvr as _uvr
+
+    return {"uvr": {**_uvr.stato(), "models": _uvr.modelli(), "default": _uvr.scegli(None)[0]},
+            "demucs": _separa.stato()}
 
 
 @_strumento()
@@ -985,11 +1002,45 @@ async def audio_to_midi(clip: str, mode: str = "melody", sound: str | None = Non
 
 @_strumento()
 async def convert_voice(clip: str, model: str, pitch: int = 0, f0_method: str = "rmvpe", index_rate: float = 0.5,
-                        protect: float = 0.33, autotune: bool = False, project: str | None = None) -> dict:
+                        protect: float = 0.33, autotune: bool = False, autotune_strength: float = 1.0,
+                        clean: bool = False, clean_strength: float = 0.7, split_audio: bool = False,
+                        formant_shift: float = 0.0, volume_envelope: float = 1.0, embedder: str = "contentvec",
+                        project: str | None = None) -> dict:
     """Re-sing a vocal clip with one of the user's voice models (Applio RVC, see voice_models): e.g. turn
     a generated vocal into the user's own voice. Works best on an isolated vocal (separate_stems first).
-    pitch in semitones (-12 female -> male, +12 male -> female). New track; the original is muted."""
-    return await _off(_store(project).convert_voice, clip, model, pitch, f0_method, index_rate, protect, autotune)
+    pitch in semitones (-12 female -> male, +12 male -> female). Applio options: f0_method (rmvpe default,
+    crepe smoother), index_rate (0-1, more = closer to the model's accent), protect (consonants/breaths),
+    autotune (+strength), clean (noise reduction), split_audio (long files), formant_shift in semitones
+    (timbre younger/older without changing notes), volume_envelope, embedder. New track; original muted."""
+    return await _off(_store(project).convert_voice, clip, model, pitch, f0_method, index_rate, protect, autotune,
+                      autotune_strength, clean, clean_strength, split_audio, formant_shift, volume_envelope, embedder)
+
+
+@_strumento()
+async def voice_cover(clip: str, model: str, pitch: int = 0, uvr_model: str | None = None, engine: str = "auto",
+                      f0_method: str = "rmvpe", index_rate: float = 0.5, protect: float = 0.33,
+                      autotune: bool = False, clean: bool = False, formant_shift: float = 0.0,
+                      project: str | None = None) -> dict:
+    """A song sung with the user's voice, in one step: separate vocals and instrumental (UVR or Demucs), re-sing
+    the vocal with an Applio model, keep it on the instrumental. Every intermediate track stays (original,
+    stems, new voice) so each step can be changed; two undo steps."""
+    return await _off(_store(project).voice_cover, clip, model, pitch, uvr_model, engine, f0_method=f0_method,
+                      index_rate=index_rate, protect=protect, autotune=autotune, clean=clean,
+                      formant_shift=formant_shift)
+
+
+@_strumento()
+def applio_ui(action: str = "status") -> dict:
+    """Applio's own interface (training new voice models, TTS, everything) started by medit and shown inside
+    the editor. action: start | stop | status. Starting takes 20-60 s."""
+    try:
+        if action == "start":
+            return voce.ui_avvia()
+        if action == "stop":
+            return voce.ui_ferma()
+    except voce.VoceError as exc:
+        raise EditError(str(exc)) from exc
+    return voce.ui_stato()
 
 
 # --------------------------------------------------------------------------

@@ -65,3 +65,17 @@ def test_non_local_host_refused(client):
         assert r.status_code == 403
     finally:
         api._host_consentiti.clear()
+
+
+def test_client_disconnects_are_silent():
+    chiamate = []
+
+    class Loop:
+        def default_exception_handler(self, ctx):
+            chiamate.append(ctx)
+
+    api._connessioni_chiuse(Loop(), {"exception": ConnectionResetError(10054, "reset")})
+    api._connessioni_chiuse(Loop(), {"exception": ConnectionAbortedError()})
+    assert chiamate == []
+    api._connessioni_chiuse(Loop(), {"exception": ValueError("vero errore")})
+    assert len(chiamate) == 1

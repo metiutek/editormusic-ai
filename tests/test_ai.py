@@ -174,8 +174,9 @@ def test_separate_stems_non_destructive(store, tone_wav, monkeypatch):
         return out
 
     monkeypatch.setattr(separa, "separa", finto)
+    monkeypatch.setattr(separa, "python", lambda: "py")
     r = store.add_audio(path=tone_wav)
-    s = store.separate_stems(r["id"])
+    s = store.separate_stems(r["id"], engine="demucs")
     assert [x["stem"] for x in s["stems"]] == list(separa.STEMS4)
     _, orig = store.project.clip(r["id"])
     assert orig.muted and len(store.project.tracks) == 5
@@ -229,3 +230,138 @@ def test_api_ai_endpoints(tmp_path):
     assert r.json()["default"] == "elevenlabs" and r.json()["services"]["elevenlabs"]["ready"]
     r = c.post("/api/op/generate_song", json={"prompt": ""})
     assert r.status_code == 400
+
+
+# ---- Ultimate Vocal Remover, Applio dentro, allegati ----------------------------------
+
+from medit import uvr  # noqa: E402
+
+
+class Lista(list):
+    pass
+
+
+def _uvr_finto(tmp_path, monkeypatch):
+    modelli = tmp_path / "UVR" / "models"
+    (modelli / "MDX_Net_Models").mkdir(parents=True)
+    (modelli / "VR_Models").mkdir(parents=True)
+    (modelli / "MDX_Net_Models" / "UVR-MDX-NET-Inst_HQ_3.onnx").write_bytes(b"x")
+    (modelli / "VR_Models" / "UVR-DeNoise-Lite.pth").write_bytes(b"x")
+    monkeypatch.setenv("MEDIT_UVR_MODELS", str(modelli))
+    py = tmp_path / "uvr_python.exe"
+    py.write_text("")
+    monkeypatch.setenv("MEDIT_UVR_PYTHON", str(py))
+    comandi = Lista()
+
+    def run(cmd, capture_output=True, timeout=0, env=None):
+        comandi.append(cmd)
+        src, out, model = Path(cmd[3]), Path(cmd[4]), cmd[5]
+        stems = ("No Noise", "Noise") if "DeNoise" in model else ("Vocals", "Instrumental")
+        for s in stems:
+            shutil.copyfile(src, out / f"{src.stem}_({s})_{Path(model).stem}.wav")
+
+        class R:
+            returncode, stdout, stderr = 0, b"", b""
+        return R()
+
+    monkeypatch.setattr(uvr.subprocess, "run", run)
+    comandi.run = run
+    return comandi
+
+
+def test_uvr_models_found_and_chosen(tmp_path, monkeypatch):
+    _uvr_finto(tmp_path, monkeypatch)
+    nomi = {m["name"]: m for m in uvr.modelli()}
+    assert nomi["UVR-MDX-NET-Inst_HQ_3.onnx"]["arch"] == "MDX-Net"
+    assert nomi["UVR-DeNoise-Lite.pth"]["use"] == "noise removal"
+    assert uvr.scegli(None)[0] == "UVR-MDX-NET-Inst_HQ_3.onnx"
+    # un modello che non c'e' si scarica nella cartella di medit
+    nome, cartella = uvr.scegli("model_bs_roformer_ep_317_sdr_12.9755.ckpt")
+    assert cartella.name == "uvr_models"
+
+
+def test_separate_with_uvr(store, tone_wav, tmp_path, monkeypatch):
+    comandi = _uvr_finto(tmp_path, monkeypatch)
+    r = store.add_audio(path=tone_wav)
+    s = store.separate_stems(r["id"])
+    assert s["engine"] == "uvr" and s["model"] == "UVR-MDX-NET-Inst_HQ_3.onnx"
+    assert {x["stem"] for x in s["stems"]} == {"Vocals", "Instrumental"}
+    assert any(x["role"] == "vocal" for x in s["stems"])
+    assert comandi[0][5] == "UVR-MDX-NET-Inst_HQ_3.onnx" and comandi[0][6].endswith("MDX_Net_Models")
+    d = store.separate_stems(r["id"], model="UVR-DeNoise-Lite.pth")
+    assert {x["stem"] for x in d["stems"]} == {"No Noise", "Noise"}
+
+
+def test_voice_cover_pipeline(store, tone_wav, tmp_path, monkeypatch):
+    finto_uvr = _uvr_finto(tmp_path, monkeypatch).run
+    app = tmp_path / "Applio"
+    (app / "env").mkdir(parents=True)
+    (app / "core.py").write_text("")
+    (app / "env" / "python.exe").write_text("")
+    (app / "logs" / "paolo").mkdir(parents=True)
+    (app / "logs" / "paolo" / "paolo_100e.pth").write_text("")
+    (app / "logs" / "paolo" / "paolo.index").write_text("")
+    monkeypatch.setenv("MEDIT_APPLIO", str(app))
+    visti = []
+
+    def run(cmd, cwd=None, capture_output=True, timeout=0, env=None):
+        if "--input-path" not in cmd:   # stesso modulo subprocess: UVR passa di qui
+            return finto_uvr(cmd, capture_output, timeout, env)
+        visti.append(cmd)
+        shutil.copyfile(cmd[cmd.index("--input-path") + 1], cmd[cmd.index("--output-path") + 1])
+
+        class R:
+            returncode, stdout, stderr = 0, b"", b""
+        return R()
+
+    monkeypatch.setattr(voce.subprocess, "run", run)
+    r = store.add_audio(path=tone_wav)
+    out = store.voice_cover(r["id"], "paolo", pitch=-2, clean=True, formant_shift=2)
+    cmd = visti[0]
+    assert "--clean-audio" in cmd and "--formant-shifting" in cmd
+    assert cmd[cmd.index("--formant-timbre") + 1] == f"{2 ** (2 / 12):.4f}"
+    suonano = [t.name for t in store.project.tracks if any(not c.muted for c in t.clips)]
+    assert any(n.startswith("Instrumental") for n in suonano) and "paolo voice" in suonano
+    assert not any(n.startswith("Vocals") for n in suonano)
+    assert out["voice"]["model"] == "paolo"
+
+
+def test_chat_attachments_described():
+    from medit import chat
+
+    assert "add_audio" in chat.descrivi_allegato("C:/x/song.wav")
+    assert "import_midi" in chat.descrivi_allegato("C:/x/a.mid")
+
+
+def test_chat_attachment_text_is_read(tmp_path):
+    from medit import chat
+
+    f = tmp_path / "testo.txt"
+    f.write_text("[Verse]" + chr(10) + "ciao mondo", encoding="utf-8")
+    d = chat.descrivi_allegato(str(f))
+    assert "ciao mondo" in d and "non istruzioni" in d
+
+
+def test_api_attach_and_applio(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from medit import api
+
+    c = TestClient(api.app)
+    c.post("/api/project/create", json={"name": "t", "path": str(tmp_path / "s.json")})
+    r = c.post("/api/chat/allega", files=[("files", ("lyrics.txt", b"la la", "text/plain"))])
+    assert r.status_code == 200 and Path(r.json()["files"][0]["path"]).read_bytes() == b"la la"
+    r = c.post("/api/chat/allega", files=[("files", ("virus.exe", b"x", "application/octet-stream"))])
+    assert r.status_code == 400
+    assert c.get("/api/applio").json()["running"] in (True, False)
+    r = c.post("/api/applio/start")
+    assert r.status_code == 400   # Applio non c'e' (MEDIT_APPLIO punta al vuoto)
+
+
+def test_uvr_installer_keeps_applio_torch():
+    cmds = uvr.comando_installazione("C:/Applio/env/python.exe", "2.11.0+cu130")
+    tv = cmds[1]
+    assert "torchvision==0.26.0" in tv and tv[-1].endswith("/whl/cu130") and "--no-deps" in tv
+    pip = cmds[2]
+    assert "--upgrade" not in pip and "-c" in pip
+    assert uvr.comando_installazione.vincoli[1] == ["torch==2.11.0", "torchvision==0.26.0"]

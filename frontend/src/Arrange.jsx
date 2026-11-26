@@ -4,9 +4,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from './api.js'
 import Icon from './Icons.jsx'
+import Splitter from './Splitter.jsx'
 import { notesFromList, snap } from './util.js'
 
-const HEAD = 190
+const HEAD_DEFAULT = 190
 const ROW = 58
 const RULER = 22
 const SECT = 22
@@ -65,7 +66,8 @@ function MiniNotes({ clip, w, h }) {
 }
 
 export default function Arrange({ project, ppb, selection, setSelection, run, playhead, onSeek, loop, setLoop, grid,
-  onOpenClip, onAddTrack }) {
+  onOpenClip, onAddTrack, head = HEAD_DEFAULT, onHead }) {
+  const HEAD = head
   const bpb = (project.time_sig[0] * 4) / project.time_sig[1]
   const ref = useRef(null)
   const [drag, setDrag] = useState(null)
@@ -151,7 +153,9 @@ export default function Arrange({ project, ppb, selection, setSelection, run, pl
         </div>
         {/* sezioni */}
         <div className="sections" style={{ top: RULER, width: HEAD + W }}>
-          <div className="corner" style={{ width: HEAD }}><span className="hint">Sections</span></div>
+          <div className="corner" style={{ width: HEAD }}><span className="hint">Sections</span>
+            {onHead && <Splitter dir="x" value={HEAD} onChange={onHead} onReset={() => onHead(HEAD_DEFAULT)}
+              title="Drag to resize the track names · double-click to reset" />}</div>
           {project.sections.map(s => (
             <div key={s.id} className={'section' + (selection?.id === s.id ? ' sel' : '')}
               style={{ left: X((s.bar - 1) * bpb), width: s.bars * bpb * ppb, background: s.color || '#555a70' }}
@@ -219,4 +223,4 @@ export default function Arrange({ project, ppb, selection, setSelection, run, pl
   )
 }
 
-export { HEAD }
+export { HEAD_DEFAULT }

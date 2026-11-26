@@ -27,7 +27,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import __version__, ai, audio_io, cloud, comfy, conversazioni, domande, estensioni, llm, memoria, presets, render, synth, theory
+from . import __version__, ai, audio_io, cloud, comfy, conversazioni, voce, domande, estensioni, llm, memoria, presets, render, synth, theory
 from . import chat as chat_mod
 from . import effects as fx
 from .model import AUDIO_EXTS, MEDIA_EXTS, MIDI_EXTS, Project
@@ -59,12 +59,13 @@ OPS = {
     "set_automation", "clear_automation", "balance_mix", "auto_master", "import_midi",
     "snapshot", "snapshots", "restore_snapshot", "delete_snapshot", "compare_versions",
     "get_notes", "undo", "redo",
-} | {"generate_song", "generate_audio", "separate_stems", "audio_to_midi", "convert_voice"}
+} | {"generate_song", "generate_audio", "separate_stems", "audio_to_midi", "convert_voice", "voice_cover",
+     "stem_engines"}
 
 # lavorano minuti (ComfyUI, rete, Demucs, Applio): fuori dal lucchetto della UI, lo Store
 # prende il suo solo per scrivere il risultato. Intanto l'editor resta usabile.
-LUNGHE = {"generate_song", "generate_audio", "separate_stems", "audio_to_midi", "convert_voice", "auto_master",
-          "balance_mix"}
+LUNGHE = {"generate_song", "generate_audio", "separate_stems", "audio_to_midi", "convert_voice", "voice_cover",
+          "auto_master", "balance_mix"}
 
 
 class Session:
@@ -174,10 +175,21 @@ _mcp = _PonteMcp()
 MCP_ATTIVO = False
 
 
+def _connessioni_chiuse(loop, ctx) -> None:
+    """Il browser chiude una connessione di colpo (ricarica, WebSocket che si riconnette, audio
+    interrotto perche' la canzone e' cambiata): su Windows asyncio stampa ConnectionResetError
+    mentre chiude un socket gia' chiuso dall'altra parte. Non e' un errore dell'editor: si tace.
+    Tutto il resto va al gestore normale."""
+    if isinstance(ctx.get("exception"), (ConnectionResetError, ConnectionAbortedError)):
+        return
+    loop.default_exception_handler(ctx)
+
+
 @asynccontextmanager
 async def _vita(_app):
     global MCP_ATTIVO
     S.loop = asyncio.get_running_loop()
+    S.loop.set_exception_handler(_connessioni_chiuse)
     try:
         from mcp.server.transport_security import TransportSecuritySettings
 
@@ -615,6 +627,47 @@ class ComfyBody(BaseModel):
 def ai_comfy(body: ComfyBody) -> dict:
     comfy.set_config(**body.model_dump())
     return ai.status()
+
+
+@app.get("/api/applio")
+def applio_stato() -> dict:
+    return voce.ui_stato()
+
+
+@app.post("/api/applio/{azione}")
+def applio_azione(azione: str) -> dict:
+    """L'interfaccia di Applio avviata da medit (si mostra in un riquadro dell'editor)."""
+    try:
+        if azione == "start":
+            return voce.ui_avvia()
+        if azione == "stop":
+            return voce.ui_ferma()
+    except voce.VoceError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    raise HTTPException(404, "action must be start or stop")
+
+
+ALLEGABILI = AUDIO_EXTS | MEDIA_EXTS | MIDI_EXTS | {".txt", ".md", ".lrc", ".srt", ".json", ".csv", ".png", ".jpg",
+                                                    ".jpeg", ".webp", ".gif", ".pdf"}
+
+
+@app.post("/api/chat/allega")
+async def chat_allega(files: list[UploadFile] = File(...)) -> dict:
+    """File allegati alla chat: copiati accanto alla canzone, all'assistente arriva il percorso (e il
+    contenuto, se e' testo). Non entrano nella canzone finche' non si chiede."""
+    st = S.need()
+    dest = st.assets_dir() / "chat"
+    dest.mkdir(parents=True, exist_ok=True)
+    out = []
+    for f in files:
+        nome = Path(f.filename or "file").name
+        if Path(nome).suffix.lower() not in ALLEGABILI:
+            raise HTTPException(400, f"{nome}: this kind of file cannot be attached")
+        target = dest / f"{uuid.uuid4().hex[:6]}_{nome}"
+        with target.open("wb") as o:
+            shutil.copyfileobj(f.file, o)
+        out.append({"type": "file", "path": str(target), "name": nome})
+    return {"files": out}
 
 
 @app.get("/api/llm")

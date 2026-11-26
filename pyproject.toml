@@ -3,7 +3,7 @@
 # con il comando del server MCP, `uvx medit-mcp` funziona senza --from.
 # Il modulo Python importabile resta `medit`.
 name = "medit-mcp"
-version = "0.2.0"
+version = "0.3.0"
 description = "Open-source AI music editor (DAW) and MCP server: tracks, MIDI, built-in synths and drums, effects, mixing and mastering. Write songs with an AI agent - chords, beats, bass lines, melodies, lyrics - and fix them by hand."
 readme = "README.md"
 requires-python = ">=3.10"

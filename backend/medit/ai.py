@@ -12,7 +12,7 @@ rete solo se l'utente l'ha reso predefinito: niente spese a sorpresa.
 
 from __future__ import annotations
 
-from . import cloud, comfy, separa, voce
+from . import cloud, comfy, separa, uvr, voce
 
 BACKENDS = ("auto", "comfyui", "elevenlabs", "replicate")
 
@@ -28,7 +28,8 @@ def status(check_comfy: bool = True) -> dict:
     return {
         "song": {"comfyui": bool(c.get("song_model")), "cloud": [k for k in pronti if cl["services"][k]["vocals"]]},
         "sound": {"comfyui": bool(c.get("audio_model")), "cloud": pronti},
-        "comfyui": c, "cloud": cl, "stems": separa.stato(), "voice": voce.stato(),
+        "comfyui": c, "cloud": cl, "stems": separa.stato(), "uvr": uvr.stato(), "voice": voce.stato(),
+        "applio_ui": voce.ui_stato(),
         "audio_to_midi": {"ok": True, "modes": ["melody", "drums"]},
     }
 
