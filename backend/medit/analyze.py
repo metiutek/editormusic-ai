@@ -157,6 +157,84 @@ def stats(x: np.ndarray, sr: int, detail: bool = True) -> dict:
 
 
 # --------------------------------------------------------------------------
+# cosa fa un effetto: spettro prima/dopo (EQ), riduzione di guadagno (dinamica)
+# --------------------------------------------------------------------------
+
+DINAMICA = {"compressor", "limiter", "gate", "deesser", "multiband", "transient", "pump"}
+
+
+def spectrum_bands(x: np.ndarray, sr: int, per_octave: int = 6, f_lo: float = 20.0,
+                   f_hi: float = 20000.0) -> tuple[list[float], list[float]]:
+    """Energia per 1/``per_octave`` di ottava (come un analizzatore RTA: rumore rosa = piatto), in dB."""
+    from scipy.signal import welch
+    m = np.asarray(x, dtype=np.float64)
+    m = m.mean(axis=0) if m.ndim == 2 else m
+    f_hi = min(f_hi, sr * 0.45)
+    k = int(np.floor(per_octave * np.log2(f_hi / f_lo)))
+    centri = f_lo * 2 ** ((np.arange(k) + 0.5) / per_octave)
+    if len(m) < 1024 or not np.any(m):
+        return [round(float(c), 1) for c in centri], [-120.0] * k
+    f, psd = welch(m, sr, nperseg=min(8192, len(m)), noverlap=None, scaling="density")
+    meta = 2 ** (0.5 / per_octave)
+    db = []
+    for c in centri:
+        punti = np.geomspace(c / meta, c * meta, 9)
+        p = float(np.interp(punti, f, psd).mean()) * (c * meta - c / meta)
+        db.append(round(10 * np.log10(max(p, 1e-14)), 2))
+    return [round(float(c), 1) for c in centri], db
+
+
+def _blocchi(v: np.ndarray, punti: int, fn) -> np.ndarray:
+    passo = max(1, len(v) // punti)
+    m = (len(v) // passo) * passo
+    return fn(v[:m].reshape(-1, passo), axis=1) if m else np.zeros(0)
+
+
+def effect_view(pre: np.ndarray, post: np.ndarray, sr: int, effect_type: str, params: dict,
+                points: int = 600) -> dict:
+    """Quello che serve per disegnare un effetto: spettro entrata/uscita e, per la dinamica,
+    livello nel tempo, riduzione di guadagno e distribuzione dei livelli al rilevatore."""
+    from . import effects as fx
+    pre = np.asarray(pre, dtype=np.float64)
+    post = np.asarray(post, dtype=np.float64)
+    freqs, s_in = spectrum_bands(pre, sr)
+    _, s_out = spectrum_bands(post, sr)
+    l_in, l_out = loudness(pre, sr)["lufs"], loudness(post, sr)["lufs"]
+    out: dict = {"type": effect_type, "sr": sr, "duration_s": round(pre.shape[-1] / sr, 3),
+                 "spectrum": {"freqs": freqs, "in": s_in, "out": s_out},
+                 "in": {"lufs": l_in, "peak_db": round(20 * np.log10(max(float(np.abs(pre).max(initial=0)), 1e-9)), 2)},
+                 "out": {"lufs": l_out, "peak_db": round(20 * np.log10(max(float(np.abs(post).max(initial=0)), 1e-9)), 2)}}
+    if effect_type not in DINAMICA or not np.any(pre):
+        return _py(out)
+    db = lambda v: 20 * np.log10(np.maximum(v, 1e-9))   # noqa: E731
+    a_in, a_out = np.abs(pre).max(axis=0), np.abs(post).max(axis=0)
+    t_in = db(_blocchi(a_in, points, np.max))
+    t_out = db(_blocchi(a_out, points, np.max))
+    p = {k: d["default"] for k, d in fx.REGISTRY[effect_type]["params"].items()}
+    p.update(params or {})
+    if effect_type == "compressor":
+        # la stessa catena del compressore: rilevatore, inviluppo, curva
+        env = db(fx.envelope(a_in, sr, p["attack_ms"], p["release_ms"]))
+        gr = fx._gain_computer(env, p["threshold_db"], max(1.0, p["ratio"]), p["knee_db"])
+        attivo = env > -80
+        h, _ = np.histogram(env[attivo], bins=60, range=(-60, 0))
+        out["detector_hist"] = [round(float(v), 4) for v in (h / max(1, h.max()))]
+    else:
+        # dall'esterno: quanto e' sceso il picco rispetto all'entrata (al netto del guadagno dato)
+        dato = float(p.get("gain_db", 0.0)) + float(p.get("output_db", 0.0))
+        gr = np.minimum(0.0, db(_blocchi(a_out, points, np.max)) - db(_blocchi(a_in, points, np.max)) - dato)
+    t_gr = _blocchi(gr, points, np.min) if len(gr) == len(a_in) else gr
+    vivo = t_in > -70
+    out["time"] = {"step_s": round(pre.shape[-1] / sr / max(1, len(t_in)), 5),
+                   "in_db": [round(float(v), 1) for v in np.maximum(t_in, -90)],
+                   "out_db": [round(float(v), 1) for v in np.maximum(t_out, -90)],
+                   "gr_db": [round(float(v), 2) for v in np.maximum(t_gr, -60)]}
+    out["gr"] = {"max_db": round(float(t_gr.min(initial=0)), 2),
+                 "avg_db": round(float(t_gr[vivo].mean()) if vivo.any() else 0.0, 2)}
+    return _py(out)
+
+
+# --------------------------------------------------------------------------
 # rilevamenti (file importati)
 # --------------------------------------------------------------------------
 

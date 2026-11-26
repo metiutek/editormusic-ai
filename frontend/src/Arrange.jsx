@@ -29,7 +29,7 @@ function usePeaks(asset) {
   return p
 }
 
-function Waveform({ clip, seconds, w, h }) {
+export function Waveform({ clip, seconds, w, h }) {
   const pk = usePeaks(clip.asset)
   const cols = Math.max(1, Math.min(MAX_COLS, Math.floor(w)))
   const d = useMemo(() => {
@@ -50,7 +50,7 @@ function Waveform({ clip, seconds, w, h }) {
   return <svg className="wave" width={w} height={h} viewBox={`0 0 ${cols} ${h}`} preserveAspectRatio="none"><path d={d} vectorEffect="non-scaling-stroke" /></svg>
 }
 
-function MiniNotes({ clip, bpb, bars, w, h }) {
+export function MiniNotes({ clip, bpb, bars, w, h }) {
   const rects = useMemo(() => {
     const notes = notesFromList(clip.note_list)
     if (!notes.length) return []
@@ -100,7 +100,7 @@ const ClipView = memo(function ClipView({ c, t, row, start, len, ppb, bpb, bpm, 
 const HEAD_PLACEHOLDER = 'var(--head)'
 
 function Arrange({ project, ppb, setPpb, selection, setSelection, run, player, spb, onSeek, loop, setLoop, grid,
-  onOpenClip, onAddTrack, onRecord, head = HEAD_DEFAULT, onHead }) {
+  onOpenClip, onAddTrack, onRecord, head = HEAD_DEFAULT, onHead, armed, onArm, recLane }) {
   const HEAD = head
   const bpb = (project.time_sig[0] * 4) / project.time_sig[1]
   const ref = useRef(null)
@@ -334,6 +334,8 @@ function Arrange({ project, ppb, setPpb, selection, setSelection, run, player, s
                 ? <InlineEdit value={s.name} onCommit={v => renameSection(s.id, v)} onCancel={stopEdit} />
                 : s.name}</div>))}
         </div>
+        {/* colonna dei nomi: copre la griglia anche sotto l'ultima traccia quando si scorre */}
+        <div className="head-col" style={{ width: HEAD, height: contentH - RULER - SECT }} />
         {/* griglia */}
         <div className="lanes-bg" style={{ left: HEAD, top: RULER + SECT, width: W, height: contentH - RULER - SECT, background: gridBg }} />
         {/* tracce */}
@@ -363,6 +365,8 @@ function Arrange({ project, ppb, setPpb, selection, setSelection, run, player, s
                   onClick={e => { e.stopPropagation(); run('set_track', { track: t.id, mute: !t.mute }) }}>M</button>
                 <button className={'ms solo' + (t.solo ? ' on' : '')} title="Solo" onPointerDown={e => e.stopPropagation()}
                   onClick={e => { e.stopPropagation(); run('set_track', { track: t.id, solo: !t.solo }) }}>S</button>
+                {t.kind === 'audio' && onArm && <button className={'ms arm' + (armed === t.id ? ' on' : '')} title="Arm for recording: the transport Rec records here"
+                  onPointerDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); onArm(t.id) }}>R</button>}
               </div>
               <div className="th-sub">
                 <Icon name={t.kind === 'audio' ? 'wave' : t.kind === 'bus' ? 'sliders' : t.instrument_type === 'drums' ? 'drum' : 'piano'} size={12} />
@@ -371,6 +375,7 @@ function Arrange({ project, ppb, setPpb, selection, setSelection, run, player, s
                 <span className="db">{t.volume_db > 0 ? '+' : ''}{t.volume_db} dB</span>
               </div>
             </div>
+            {recLane?.track === t.id && <RecGhost player={player} x0={X(recLane.start / spb)} toX={toX} />}
             {t.kind !== 'bus' && t.clips.map(c => {
               const g = ghost && ghost.id === c.id ? ghost : null
               if (g && g.row !== row) return null
@@ -393,6 +398,15 @@ function Arrange({ project, ppb, setPpb, selection, setSelection, run, player, s
       {menu && <ContextMenu {...menu} onClose={() => setMenu(null)} />}
     </div>
   )
+}
+
+// regione rossa che cresce dal punto di partenza al cursore mentre si registra
+function RecGhost({ player, x0, toX }) {
+  const ref = useRef(null)
+  useEffect(() => player.onFrame(t => {
+    if (ref.current) ref.current.style.width = Math.max(0, toX(t) - x0) + 'px'
+  }), [player, x0, toX])
+  return <div ref={ref} className="rec-ghost" style={{ left: x0 }}><span>● REC</span></div>
 }
 
 export default memo(Arrange)

@@ -63,6 +63,12 @@ def envelope(level: np.ndarray, sr: int, attack_ms: float, release_ms: float, ho
     return np.interp(np.arange(n), np.arange(m) * hop + hop / 2, out)
 
 
+def _tempo(n: int, sr: int, ctx: dict) -> np.ndarray:
+    """Secondi dall'inizio della canzone: LFO e modulazioni restano a tempo anche quando
+    si renderizza un pezzo solo (``ctx["t0"]`` = primo campione del pezzo)."""
+    return (np.arange(n) + ctx.get("t0", 0)) / sr
+
+
 def _gain_computer(level_db: np.ndarray, thr: float, ratio: float, knee: float) -> np.ndarray:
     """Riduzione di guadagno in dB (<= 0) con ginocchio morbido."""
     over = level_db - thr
@@ -129,7 +135,7 @@ def _filtro(kind):
 def fx_filter_lfo(x, sr, p, ctx):
     """Filtro che si apre e si chiude a tempo (wobble, sweep ritmico)."""
     n = x.shape[-1]
-    t = np.arange(n) / sr
+    t = _tempo(n, sr, ctx)
     hz = ctx["bpm"] / 60.0 / max(1e-3, p["rate"])
     lfo = 0.5 * (1 - np.cos(2 * np.pi * hz * t))
     lo, hi = np.log2(max(20, p["min"])), np.log2(max(30, p["max"]))
@@ -267,7 +273,7 @@ def _mod_delay(x, sr, ritardo_s: np.ndarray) -> np.ndarray:
 
 def fx_chorus(x, sr, p, ctx):
     n = x.shape[-1]
-    t = np.arange(n) / sr
+    t = _tempo(n, sr, ctx)
     base = p["delay_ms"] / 1000.0
     dep = p["depth_ms"] / 1000.0
     l = _mod_delay(x[0], sr, base + dep * 0.5 * (1 + np.sin(2 * np.pi * p["rate"] * t)))
@@ -277,7 +283,7 @@ def fx_chorus(x, sr, p, ctx):
 
 def fx_flanger(x, sr, p, ctx):
     n = x.shape[-1]
-    t = np.arange(n) / sr
+    t = _tempo(n, sr, ctx)
     rit = 0.0005 + p["depth_ms"] / 1000.0 * 0.5 * (1 + np.sin(2 * np.pi * p["rate"] * t))
     wet = np.stack([_mod_delay(c, sr, rit) for c in x])
     return x + wet * p["feedback"] if p["feedback"] else wet
@@ -313,8 +319,8 @@ def fx_bitcrusher(x, sr, p, ctx):
     return y
 
 
-def _lfo_beats(n, sr, bpm, rate_beats, shape="sine", phase=0.0):
-    t = np.arange(n) / sr
+def _lfo_beats(n, sr, bpm, rate_beats, shape="sine", phase=0.0, t0=0):
+    t = (np.arange(n) + t0) / sr
     hz = bpm / 60.0 / max(1e-3, rate_beats)
     ph = (t * hz + phase) % 1.0
     if shape == "square":
@@ -325,12 +331,12 @@ def _lfo_beats(n, sr, bpm, rate_beats, shape="sine", phase=0.0):
 
 
 def fx_tremolo(x, sr, p, ctx):
-    lfo = _lfo_beats(x.shape[-1], sr, ctx["bpm"], p["rate_beats"], p["shape"])
+    lfo = _lfo_beats(x.shape[-1], sr, ctx["bpm"], p["rate_beats"], p["shape"], t0=ctx.get("t0", 0))
     return x * (1 - p["depth"] * lfo)
 
 
 def fx_autopan(x, sr, p, ctx):
-    lfo = _lfo_beats(x.shape[-1], sr, ctx["bpm"], p["rate_beats"]) * 2 - 1
+    lfo = _lfo_beats(x.shape[-1], sr, ctx["bpm"], p["rate_beats"], t0=ctx.get("t0", 0)) * 2 - 1
     pan = lfo * p["depth"]
     th = (pan + 1) * np.pi / 4
     m = x.mean(axis=0)
@@ -340,7 +346,7 @@ def fx_autopan(x, sr, p, ctx):
 def fx_pump(x, sr, p, ctx):
     """Il 'pompaggio' del sidechain a tempo: il volume si abbassa a ogni battito e risale."""
     n = x.shape[-1]
-    t = np.arange(n) / sr
+    t = _tempo(n, sr, ctx)
     passo = 60.0 / ctx["bpm"] * p["rate_beats"]
     ph = (t / passo) % 1.0
     # discesa in 1.5% del passo (niente click), poi risalita esponenziale
@@ -362,7 +368,7 @@ def fx_stereo_width(x, sr, p, ctx):
 def fx_lofi(x, sr, p, ctx):
     """Nastro e vinile: oscillazione d'altezza, banda stretta, fruscio e crepitii."""
     n = x.shape[-1]
-    t = np.arange(n) / sr
+    t = _tempo(n, sr, ctx)
     rng = np.random.default_rng(int(ctx.get("seed", 0)) + 7)
     y = x
     if p["wow"]:
@@ -414,7 +420,7 @@ def fx_pitch_shift(x, sr, p, ctx):
 def fx_doubler(x, sr, p, ctx):
     """Doppia ripresa finta: due copie un po' in ritardo e stonate, aperte ai lati."""
     n = x.shape[-1]
-    t = np.arange(n) / sr
+    t = _tempo(n, sr, ctx)
     m = x.mean(axis=0)
     base = p["delay_ms"] / 1000.0
     # una deriva lenta del ritardo = un leggero cambio d'altezza, come una seconda voce
@@ -432,7 +438,7 @@ def fx_phaser(x, sr, p, ctx):
     stadi = int(p["stages"])
     rate = p["rate"] if p["rate_beats"] <= 0 else ctx["bpm"] / 60.0 / p["rate_beats"]
     blocco = 128
-    t = np.arange(0, n, blocco) / sr
+    t = (np.arange(0, n, blocco) + ctx.get("t0", 0)) / sr
     lo, hi = np.log2(max(20, p["min"])), np.log2(max(40, p["max"]))
     fc = 2 ** (lo + (hi - lo) * 0.5 * (1 - np.cos(2 * np.pi * rate * t)))
     tn = np.tan(np.pi * np.clip(fc, 20, sr * 0.45) / sr)
@@ -512,12 +518,12 @@ def fx_graphic_eq(x, sr, p, ctx):
 
 
 def fx_ring_mod(x, sr, p, ctx):
-    t = np.arange(x.shape[-1]) / sr
+    t = _tempo(x.shape[-1], sr, ctx)
     return x * np.sin(2 * np.pi * p["freq"] * t)
 
 
 def fx_vibrato(x, sr, p, ctx):
-    t = np.arange(x.shape[-1]) / sr
+    t = _tempo(x.shape[-1], sr, ctx)
     rit = 0.003 + p["depth"] * 0.002 * 0.5 * (1 + np.sin(2 * np.pi * p["rate"] * t))
     return np.stack([_mod_delay(c, sr, rit) for c in x])
 

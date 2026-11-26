@@ -1484,6 +1484,20 @@ class Store:
             return {"track": t.name, **analyze.stats(x, sr)}
         return analyze.stats(self.render(start_bar, end_bar), sr)
 
+    def effect_view(self, target: str, index: int) -> dict:
+        """Cosa fa l'effetto ``index`` della catena di ``target`` (traccia, bus o ``"master"``):
+        spettro di entrata e uscita (per l'EQ), e per compressori/limiter livello nel tempo,
+        riduzione di guadagno e distribuzione dei livelli. Calcolato col codice del render."""
+        lista, nome, t = self._catena(target)
+        e = self._fx_at(lista, index, nome)
+        index = int(index) % len(lista)
+        try:
+            pre, post = render.chain_tap(self.project, "master" if t is None else t.id, index, self.base_dir)
+        except (KeyError, IndexError) as exc:
+            raise EditError(f"no effect {index} on {nome}") from exc
+        out = analyze.effect_view(pre, post, self.project.sample_rate, e.type, e.params)
+        return {"target": nome, "index": int(index), "effect": e.type, "enabled": e.enabled, **out}
+
     def review(self, target_lufs: float = -14.0) -> list[dict]:
         return analyze.review(self.project, self.base_dir, target_lufs=target_lufs)
 
@@ -1776,7 +1790,8 @@ class Store:
             cartella = self.assets_dir() / "stems" / f"{a.id}_uvr_{Path(nome_modello).stem}"
             gia = sorted(cartella.glob("*.wav")) if cartella.is_dir() else []
             try:
-                stems = ({uvr._nome_stem(f): f for f in gia} if gia else uvr.separa(src, cartella, nome_modello))
+                # gia' separata (anche da una sessione interrotta): si riusa, ma solo se e' completa
+                stems = ({uvr._nome_stem(f): f for f in gia} if len(gia) >= 2 else uvr.separa(src, cartella, nome_modello))
             except uvr.UvrError as exc:
                 raise EditError(str(exc)) from exc
             origine = f"uvr {nome_modello} of {a.name}"

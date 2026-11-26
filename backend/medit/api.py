@@ -384,6 +384,30 @@ def audio(rev: str = "", sr: int = 0) -> Response:
     return Response(data, media_type="audio/wav", headers={"Cache-Control": "no-store"})
 
 
+@app.get("/api/chunk")
+def chunk(start: float, dur: float = 3.0, sr: int = 0) -> Response:
+    """Un pezzo del mix (WAV 16 bit) da ``start`` secondi, lungo ``dur``: la riproduzione
+    va a pezzi, cosi' parte subito e ogni modifica si sente dopo pochi decimi di secondo.
+    L'intestazione ``X-Rev`` dice di quale revisione della canzone e'."""
+    snap, base = S.snapshot()
+    rev = S.revision()
+    sr = int(sr) if sr in (22050, 32000, 44100, 48000) else snap.sample_rate
+    a = max(0, int(round(float(start) * sr)))
+    n = max(1, min(int(round(float(dur) * sr)), sr * 20))
+    key = ("chunk", rev, sr, a, n)
+
+    def fai() -> bytes:
+        with S.render_lock:
+            return audio_io.wav_bytes(render.render_window(snap, base, a, n, sr=sr), sr)
+
+    try:
+        data = S.cached(key, fai)
+    except (FileNotFoundError, KeyError, ValueError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return Response(data, media_type="audio/wav", headers={"Cache-Control": "no-store", "X-Rev": rev,
+                                                           "Access-Control-Expose-Headers": "X-Rev"})
+
+
 @app.get("/api/note")
 def note(track: str, pitch: int, velocity: int = 100, seconds: float = 0.5) -> Response:
     """Una nota sola sullo strumento della traccia: il tasto del piano roll suona."""
@@ -428,6 +452,17 @@ def analyze_doc(track: str | None = None) -> dict:
     with S.render_lock:
         try:
             return st.analyze(track)
+        except EditError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/api/fxview")
+def effect_view_doc(target: str, index: int) -> dict:
+    """Spettro e dinamica di un effetto della catena: li disegnano EQ e compressore."""
+    st = S.need()
+    with S.render_lock:
+        try:
+            return st.effect_view(target, index)
         except EditError as exc:
             raise HTTPException(400, str(exc)) from exc
 

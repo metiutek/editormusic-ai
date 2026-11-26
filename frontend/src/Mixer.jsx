@@ -18,7 +18,18 @@ function useDrag(value, commit) {
   }]
 }
 
-function Strip({ t, run, lufs, selected, onSelect }) {
+// insert: gli effetti della catena, un clic apre il pannello in basso
+function Inserts({ target, effects, fx, onOpenFx, slots = 0 }) {
+  return (
+    <div className="inserts" style={{ minHeight: slots * 19 }}>
+      {effects.map((e, i) => <button key={i} title={`${e.type} · click to open`}
+        className={(e.enabled === false ? 'off' : '') + (fx?.target === target && fx?.index === i ? ' on' : '')}
+        onClick={ev => { ev.stopPropagation(); onOpenFx(target, i) }}>{e.type.replace(/_/g, ' ')}</button>)}
+    </div>
+  )
+}
+
+function Strip({ t, run, lufs, selected, onSelect, fx, onOpenFx, slots }) {
   const [edit, setEdit] = useState(false)
   const [vol, volProps] = useDrag(t.volume_db, x => run('set_track', { track: t.id, volume_db: x }))
   const [pan, panProps] = useDrag(t.pan || 0, x => run('set_track', { track: t.id, pan: x }))
@@ -27,6 +38,7 @@ function Strip({ t, run, lufs, selected, onSelect }) {
       {edit
         ? <InlineEdit className="strip-edit" value={t.name} onCommit={n => { setEdit(false); run('set_track', { track: t.id, name: n }) }} onCancel={() => setEdit(false)} />
         : <div className="strip-name" title={t.name + ' · double-click to rename'} onDoubleClick={() => setEdit(true)}>{t.name}</div>}
+      <Inserts target={t.id} effects={t.effects || []} fx={fx} onOpenFx={onOpenFx} slots={slots} />
       <input type="range" className="pan" min={-1} max={1} step={0.05} value={pan} title={`pan ${pan} · double-click: center`}
         {...panProps} onDoubleClick={e => { e.stopPropagation(); if (t.pan) run('set_track', { track: t.id, pan: 0 }) }} />
       <div className="fader-wrap">
@@ -43,10 +55,12 @@ function Strip({ t, run, lufs, selected, onSelect }) {
   )
 }
 
-export default function Mixer({ project, run, selection, setSelection, analysis, onAnalyze }) {
+export default function Mixer({ project, run, selection, setSelection, analysis, onAnalyze, fx, onOpenFx }) {
   const [levels, setLevels] = useState({})
   const [review, setReview] = useState(null)
   const [busy, setBusy] = useState('')
+  // stessa altezza per gli insert di tutti i canali: i fader restano allineati
+  const slots = Math.max(1, project.master.effects.length, ...project.tracks.map(t => (t.effects || []).length))
   const misura = async () => {
     setBusy('measuring')
     const out = {}
@@ -74,14 +88,14 @@ export default function Mixer({ project, run, selection, setSelection, analysis,
         <button className="primary" onClick={() => run('auto_master', { target_lufs: -14 })}>Auto master −14</button>
       </div>
       <div className="strips">
-        {project.tracks.map(t => <Strip key={t.id} t={t} run={run} lufs={levels[t.id]} selected={selection?.id === t.id}
+        {project.tracks.map(t => <Strip key={t.id} t={t} run={run} lufs={levels[t.id]} selected={selection?.id === t.id} fx={fx} onOpenFx={onOpenFx} slots={slots}
           onSelect={() => setSelection({ kind: 'track', id: t.id, track: t.id })} />)}
         <div className={'strip master' + (!selection ? ' sel' : '')} onClick={() => setSelection(null)}>
           <div className="strip-name">Master</div>
+          <Inserts target="master" effects={project.master.effects} fx={fx} onOpenFx={onOpenFx} slots={slots} />
           <div className="fader-wrap">
             <MasterFader value={project.master.volume_db} run={run} />
           </div>
-          <div className="hint">{project.master.effects.map(e => e.type).join(' → ') || 'no effects'}</div>
         </div>
       </div>
       {analysis && <Measures a={analysis} />}

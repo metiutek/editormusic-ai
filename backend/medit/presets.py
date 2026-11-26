@@ -209,6 +209,53 @@ CHAINS: dict[str, dict] = {
                                                                 "release_ms": 100.0, "makeup_db": 4.0}},
                               {"type": "exciter", "params": {"freq": 5000.0, "amount": 0.2}},
                               {"type": "doubler", "params": {"mix": 0.25}}]},
+    "vocal natural": {"desc": "transparent vocal: low cut, a little presence, gentle compression, short room",
+                      "effects": [{"type": "eq", "params": {"low_cut": 80.0, "mid2_gain": 1.5, "mid2_freq": 3000.0,
+                                                            "high_gain": 1.5}},
+                                  {"type": "compressor", "params": {"threshold_db": -18.0, "ratio": 3.0, "attack_ms": 8.0,
+                                                                    "release_ms": 120.0, "makeup_db": 3.0}},
+                                  {"type": "reverb", "params": {"decay": 1.2, "predelay_ms": 20.0, "mix": 0.12}}]},
+    "vocal podcast": {"desc": "spoken voice: gate, cleanup EQ, de-ess, steady compression",
+                      "effects": [{"type": "gate", "params": {"threshold_db": -50.0}},
+                                  {"type": "eq", "params": {"low_cut": 80.0, "mid_gain": -2.0, "mid_freq": 300.0,
+                                                            "mid2_gain": 2.0, "mid2_freq": 3000.0}},
+                                  {"type": "deesser", "params": {}},
+                                  {"type": "compressor", "params": {"threshold_db": -22.0, "ratio": 4.0, "attack_ms": 5.0,
+                                                                    "release_ms": 120.0, "makeup_db": 5.0}}]},
+    "vocal rap": {"desc": "upfront rap vocal: tight lows, presence, hard compression, a touch of grit and double",
+                  "effects": [{"type": "eq", "params": {"low_cut": 100.0, "mid_gain": -2.0, "mid_freq": 250.0,
+                                                        "mid2_gain": 3.0, "mid2_freq": 4000.0, "high_gain": 2.0}},
+                              {"type": "deesser", "params": {}},
+                              {"type": "compressor", "params": {"threshold_db": -24.0, "ratio": 6.0, "attack_ms": 3.0,
+                                                                "release_ms": 60.0, "makeup_db": 6.0}},
+                              {"type": "distortion", "params": {"drive": 0.12, "mode": "tape", "output_db": 0.0, "mix": 0.3}},
+                              {"type": "doubler", "params": {"mix": 0.2}}]},
+    "vocal trap": {"desc": "modern trap vocal: fast tune, bright, compressed, eighth-note echo and room",
+                   "effects": [{"type": "autotune", "params": {"speed_ms": 5.0}},
+                               {"type": "eq", "params": {"low_cut": 120.0, "mid2_gain": 3.0, "mid2_freq": 4500.0,
+                                                         "high_gain": 3.0}},
+                               {"type": "compressor", "params": {"threshold_db": -24.0, "ratio": 6.0, "attack_ms": 3.0,
+                                                                 "release_ms": 70.0, "makeup_db": 6.0}},
+                               {"type": "delay", "params": {"time_beats": 0.5, "feedback": 0.3, "ping_pong": True,
+                                                            "mix": 0.15, "tone": 5000.0}},
+                               {"type": "reverb", "params": {"decay": 1.8, "mix": 0.15}}]},
+    "vocal robot": {"desc": "robot voice: hard tune and ring modulation",
+                    "effects": [{"type": "autotune", "params": {"speed_ms": 0.0}},
+                                {"type": "ring_mod", "params": {"freq": 80.0, "mix": 0.35}},
+                                {"type": "eq", "params": {"low_cut": 150.0, "mid2_gain": 3.0, "mid2_freq": 2500.0}}]},
+    "vocal dreamy": {"desc": "ethereal vocal: airy top, chorus, ping-pong echo, long hall",
+                     "effects": [{"type": "eq", "params": {"low_cut": 150.0, "high_gain": 3.0}},
+                                 {"type": "chorus", "params": {"mix": 0.25}},
+                                 {"type": "delay", "params": {"time_beats": 0.75, "feedback": 0.45, "ping_pong": True,
+                                                              "mix": 0.25}},
+                                 {"type": "reverb", "params": {"decay": 3.5, "predelay_ms": 40.0, "mix": 0.35}}]},
+    "vocal stadium": {"desc": "big ballad vocal: polished, slap echo and a large hall",
+                      "effects": [{"type": "eq", "params": {"low_cut": 100.0, "mid_gain": -2.0, "mid_freq": 350.0,
+                                                            "high_gain": 3.0, "high_freq": 10000.0}},
+                                  {"type": "compressor", "params": {"threshold_db": -20.0, "ratio": 4.0, "attack_ms": 5.0,
+                                                                    "release_ms": 100.0, "makeup_db": 4.0}},
+                                  {"type": "delay", "params": {"time_ms": 120.0, "feedback": 0.15, "mix": 0.15}},
+                                  {"type": "reverb", "params": {"decay": 2.8, "predelay_ms": 30.0, "mix": 0.3}}]},
     "drum bus": {"desc": "glue and punch for drums",
                  "effects": [{"type": "compressor", "params": {"threshold_db": -14.0, "ratio": 4.0, "attack_ms": 20.0,
                                                                "release_ms": 120.0, "makeup_db": 3.0, "mix": 0.6}},
@@ -250,6 +297,17 @@ CHAINS: dict[str, dict] = {
                                 {"type": "distortion", "params": {"drive": 0.1, "mode": "tape", "output_db": 0.0, "mix": 0.3}},
                                 {"type": "stereo_width", "params": {"width": 1.1, "bass_mono": 150.0}},
                                 {"type": "limiter", "params": {"gain_db": 7.0, "ceiling_db": -0.8}}]},
+}
+
+# famiglie per il browser dei preset (UI): voce pulita, rap, sperimentale, spazi, strumenti, bus, master
+_CATEGORIE = {
+    "vocal": "voice clean", "vocal natural": "voice clean", "vocal pop": "voice clean", "vocal tuned": "voice clean",
+    "vocal podcast": "voice clean", "vocal rap": "voice rap", "vocal trap": "voice rap", "vocal hard tune": "voice rap",
+    "vocal robot": "voice experimental", "radio": "voice experimental", "lofi": "voice experimental",
+    "vocal dreamy": "voice spaces", "vocal stadium": "voice spaces", "slapback": "voice spaces",
+    "drum bus": "instrument", "bass": "instrument", "pad space": "instrument",
+    "big reverb bus": "bus", "plate bus": "bus", "delay bus": "bus",
+    "master streaming": "master", "master loud": "master",
 }
 
 # programmi General MIDI -> suono interno (per importare file .mid)
@@ -329,10 +387,11 @@ def describe_sounds() -> list[dict]:
 
 def describe_chains() -> list[dict]:
     u = _utente()["chains"]
-    out = [{"name": k, "desc": v["desc"], "effects": [e["type"] for e in v["effects"]], "user": False}
+    out = [{"name": k, "desc": v["desc"], "effects": [e["type"] for e in v["effects"]], "user": False,
+            "category": _CATEGORIE.get(k, "instrument"), "params": [e.get("params", {}) for e in v["effects"]]}
            for k, v in CHAINS.items()]
-    out += [{"name": k, "desc": v.get("desc", ""), "effects": [e["type"] for e in v["effects"]], "user": True}
-            for k, v in u.items()]
+    out += [{"name": k, "desc": v.get("desc", ""), "effects": [e["type"] for e in v["effects"]], "user": True,
+             "category": "mine", "params": [e.get("params", {}) for e in v["effects"]]} for k, v in u.items()]
     return out
 
 

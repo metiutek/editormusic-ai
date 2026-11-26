@@ -201,3 +201,40 @@ def test_set_song(store):
     assert (p.bpm, p.key, p.mode, p.swing) == (90, "D", "dorian", 0.3)
     with pytest.raises(EditError):
         store.set_song(bpm=5)
+
+
+def test_effect_view_eq_and_compressor(store):
+    store.add_chords("Am F C G")
+    store.add_effect("Chords", "eq", {"high_cut": 1000})
+    store.add_effect("Chords", "compressor", {"threshold_db": -40, "ratio": 8})
+    v = store.effect_view("Chords", 0)
+    s = v["spectrum"]
+    assert v["effect"] == "eq" and len(s["freqs"]) == len(s["in"]) == len(s["out"])
+    # il passa-basso a 1 kHz toglie gli alti in uscita, non in entrata
+    alto = [i for i, f in enumerate(s["freqs"]) if f > 4000]
+    assert all(s["out"][i] < s["in"][i] - 6 for i in alto)
+    assert "time" not in v
+    c = store.effect_view("Chords", 1)
+    # l'ingresso del compressore e' l'uscita dell'EQ
+    assert c["spectrum"]["in"] == s["out"]
+    assert c["gr"]["max_db"] < -6 and len(c["time"]["gr_db"]) == len(c["time"]["in_db"])
+    assert len(c["detector_hist"]) == 60
+    store.add_effect("master", "limiter", {"gain_db": 12})
+    m = store.effect_view("master", -1)
+    assert m["index"] == 0 and m["gr"]["max_db"] < -1
+    with pytest.raises(EditError):
+        store.effect_view("Chords", 5)
+
+
+def test_every_chain_is_valid_and_has_a_family(store):
+    from medit import effects as fx, presets
+    for c in presets.describe_chains():
+        if c["user"]:
+            continue
+        assert c["category"] in {"voice clean", "voice rap", "voice experimental", "voice spaces",
+                                 "instrument", "bus", "master"}, c["name"]
+        for e in presets.chain(c["name"])["effects"]:
+            fx.validate(e["type"], e.get("params"), partial=True)
+    t = store.add_track(kind="audio", name="Vox")
+    store.apply_chain("Vox", "vocal trap", replace=True)
+    assert [e.type for e in store.project.track("Vox").effects][0] == "autotune"

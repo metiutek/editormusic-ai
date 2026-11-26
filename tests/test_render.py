@@ -237,3 +237,24 @@ def test_doubler_widens():
     x = _sega(220.0)
     y = fx.apply("doubler", x, SR, fx.validate("doubler", {"mix": 1.0}), {"bpm": 120})
     assert analyze.stereo(x)["correlation"] > analyze.stereo(y)["correlation"]
+
+
+def test_window_render_matches_full_render(store):
+    from medit import render
+    store.add_drums("house", bars=4)
+    store.add_chords("Am F C G", bars=4)
+    store.add_bassline("Am F C G", bars=4)
+    store.add_effect("Chords", "eq", {"low_cut": 150})
+    store.add_effect("Chords", "tremolo", {"rate_beats": 0.5})
+    store.add_effect("Bass", "autopan")
+    store.set_track("Bass", volume_db=-3, pan=0.3)
+    p = store.project
+    sr = p.sample_rate
+    full = render.render(p, store.base_dir)
+    a, n = int(3.1 * sr), int(1.5 * sr)
+    win = render.render_window(p, store.base_dir, a, n)
+    assert win.shape == (2, n)
+    # stesse note, stessi semi, LFO a tempo: il tratto e' lo stesso del render completo
+    assert np.abs(win - full[:, a:a + n]).max() < 1e-3
+    # il pezzo all'inizio (senza pre-roll) coincide anche lui
+    assert np.abs(render.render_window(p, store.base_dir, 0, n) - full[:, :n]).max() < 1e-3

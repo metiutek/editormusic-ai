@@ -9,8 +9,7 @@ import Chat from './Chat.jsx'
 import Compose from './Compose.jsx'
 import { Browse, Export, Modal, NewSong, Questions } from './Dialogs.jsx'
 import Icon from './Icons.jsx'
-import Inspector from './Inspector.jsx'
-import Mixer from './Mixer.jsx'
+import Dock from './Dock.jsx'
 import PianoRoll from './PianoRoll.jsx'
 import { Player } from './player.js'
 import { Recorder, encodeWav, trimStart } from './recorder.js'
@@ -19,7 +18,8 @@ import Versions from './Versions.jsx'
 import { Live } from './Widgets.jsx'
 import { fmtPos, fmtTime } from './util.js'
 
-const TABS = [['inspector', 'Inspector'], ['compose', 'Compose'], ['ai', 'AI'], ['mixer', 'Mixer'], ['chat', 'Assistant'], ['versions', 'Versions']]
+// a destra l'agente; la traccia selezionata si lavora nel pannello in basso (Dock)
+const TABS = [['chat', 'Assistant'], ['ai', 'AI tools'], ['compose', 'Compose'], ['versions', 'Versions']]
 const KEYS = ['C', 'C#', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B']
 
 export default function App() {
@@ -27,9 +27,16 @@ export default function App() {
   const [catalog, setCatalog] = useState({})
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState('')
-  const [tab, setTab] = useState('compose')
+  const [tab, setTab] = useState('chat')
   const [sel, setSel] = useState(null)
   const [rollClip, setRollClip] = useState(null)
+  // pannello in basso: si apre selezionando una traccia; view = track | master | mixer
+  const [dock, setDock] = useState({ open: false, view: 'track' })
+  const [fxIndex, setFxIndex] = useState(null)   // effetto aperto nel rack
+  const [armed, setArmed] = useState(null)       // traccia audio armata per il Rec del trasporto
+  const [countdown, setCountdown] = useState(0)
+  const [recLane, setRecLane] = useState(null)    // {track, start (s)}: regione che cresce mentre si registra
+  const [metroMenu, setMetroMenu] = useState(false)
   const [dialog, setDialog] = useState(null)
   const [question, setQuestion] = useState(null)
   const [llm, setLlm] = useState(null)
@@ -44,6 +51,7 @@ export default function App() {
   const [analysis, setAnalysis] = useState(null)
   const [sideW, setSideW] = useSize('side', 360, 280, 900)
   const [rollH, setRollH] = useSize('roll', 300, 140, 900)
+  const [dockH, setDockH] = useSize('dock', 380, 220, 900)
   const [headW, setHeadW] = useSize('head', 190, 120, 400)
   const player = useRef(null)
   if (!player.current) player.current = new Player()
@@ -119,9 +127,10 @@ export default function App() {
     const info = recInfo.current
     if (!r || !info) return
     setRec('saving')
+    setRecLane(null)
     const lat = r.latency()
     let res
-    try { res = await r.stop() } catch (e) { setErr(e.message); setRec(''); return }
+    try { res = await r.stop(info.keepOpen) } catch (e) { setErr(e.message); setRec(''); return }
     p.stop()
     p.setLoop(info.loopPrima)
     // dove sta nella canzone il primo campione: ancora del player + latenza di andata e ritorno
@@ -149,7 +158,8 @@ export default function App() {
     if (rec === 'rec') { fermaRec(); return }
     if (rec) return
     const p = player.current
-    const r = recorder.current || (recorder.current = new Recorder(() => p._ctx()))
+    const r = getRecorder()
+    const keepOpen = r.isOpen
     setRec('arming')
     try { await r.open() } catch (e) {
       setRec('')
@@ -157,20 +167,37 @@ export default function App() {
       return
     }
     r.onLevel = l => { if (meterRef.current) meterRef.current.style.transform = `scaleX(${(1 - Math.min(1, l)).toFixed(3)})` }
-    const t = typeof trackId === 'string' ? trackId : selTrackRef.current?.kind === 'audio' ? selTrackRef.current.id : ''
+    let t = typeof trackId === 'string' ? trackId : armedRef.current || (selTrackRef.current?.kind === 'audio' ? selTrackRef.current.id : '')
+    // nessuna traccia audio scelta: se ne crea una adesso, cosi' la registrazione si vede crescere li'
+    if (!t) {
+      const nr = await run('add_track', { kind: 'audio', name: 'Vocals', role: 'vocal' })
+      t = nr?.result?.id || ''
+      if (t) setSel({ kind: 'track', id: t, track: t })
+    }
     const loopPrima = p.loop
     if (p.playing) p.stop()
+    // count-in: battute di click prima di partire
+    const bars = p.metro.countIn || 0
+    if (bars > 0) {
+      setRec('count')
+      await p.countIn(bars, setCountdown)
+    }
     p.loop = null                     // si registra in linea retta
     const at = p.offset
     const cur = stRef.current
     try { if (cur.project.tracks.some(x => x.clips.length)) await p.play(cur.revision, at) } catch { /* canzone vuota: si registra lo stesso */ }
-    const ctx = p._ctx()
-    const anchor = p.playing ? { ctx: p.startedAt, song: p.offset } : { ctx: ctx.currentTime, song: at }
+    // canzone vuota (o audio non pronto): il tempo scorre lo stesso, cursore e metronomo avanzano
+    if (!p.playing) await p.runFree(at)
+    const anchor = { ctx: p.startedAt, song: p.offset }
     const pr = cur.project
-    recInfo.current = { target: t, anchor, loopPrima, bpb: (pr.time_sig[0] * 4) / pr.time_sig[1] }
+    recInfo.current = { target: t, anchor, loopPrima, keepOpen, bpb: (pr.time_sig[0] * 4) / pr.time_sig[1] }
     r.start()
+    setRecLane(t ? { track: t, start: at } : null)
     setRec('rec')
   }
+  const getRecorder = () => recorder.current || (recorder.current = new Recorder(() => player.current._ctx()))
+  const armedRef = useRef(null)
+  armedRef.current = armed
   const registraRef = useRef(registra)
   registraRef.current = registra
   const onRecord = useCallback(id => registraRef.current(id), [])
@@ -178,6 +205,7 @@ export default function App() {
   const playPause = async () => {
     const p = player.current
     if (rec === 'rec') { fermaRec(); return }
+    if (rec === 'count') return
     if (p.playing) { p.stop(); return }
     try { await p.play(st.revision, loopOn && loop ? Math.max(p.offset, loop[0] * spb) : p.offset) } catch (e) { setErr(e.message) }
   }
@@ -205,7 +233,7 @@ export default function App() {
       else if (mod && e.key.toLowerCase() === 'd' && sel?.kind === 'clip') { e.preventDefault(); run('duplicate_clip', { clip: sel.id }) }
       else if ((e.key === 'Delete' || e.key === 'Backspace') && sel?.kind === 'clip' && !rollClip) { e.preventDefault(); run('remove_clip', { clip: sel.id }); setSel(null) }
       else if (e.key === 'Delete' && sel?.kind === 'track' && !rollClip) { e.preventDefault(); run('remove_track', { track: sel.id }); setSel(null) }
-      else if (e.key === 'Escape') { if (rollClip) setRollClip(null); else setSel(null) }
+      else if (e.key === 'Escape') { if (rollClip) setRollClip(null); else if (dock.open) setDock(d => ({ ...d, open: false })); else setSel(null) }
       else if (e.key === 'Home') seek(0)
       else if (e.key === 'l' || e.key === 'L') setLoopOn(x => !x)
       else if ((e.key === 'r' || e.key === 'R') && !mod) { e.preventDefault(); registra() }
@@ -251,11 +279,32 @@ export default function App() {
   if (selectedTrack) refsSel.push({ type: 'track', id: selectedTrack.id, name: selectedTrack.name })
   if (loop) refsSel.push({ type: 'bars', from: loop[0] / bpb + 1, to: loop[1] / bpb, name: `${loop[0] / bpb + 1}-${loop[1] / bpb}` })
 
-  const selectArr = useCallback(s => { setSel(s); if (s) setTab(t => (t === 'compose' && s.kind !== 'track' ? 'inspector' : t)) }, [])
+  // selezionare una traccia, una clip o una sezione apre il pannello in basso
+  const selectArr = useCallback(s => {
+    setSel(prev => {
+      const tr = x => x && (x.kind === 'track' ? x.id : x.track)
+      if (tr(prev) !== tr(s)) setFxIndex(null)
+      return s
+    })
+    if (s) setDock({ open: true, view: 'track' })
+  }, [])
   const setLoopArr = useCallback(l => { setLoopBeats(l); setLoopOn(true) }, [])
   const addTrack = useCallback(kind => kind === 'bus' ? run('add_bus', { name: 'Reverb' })
     : run('add_track', { kind, ...(kind === 'midi' ? { sound: 'piano' } : {}) }), [run])
   const closeRoll = useCallback(() => setRollClip(null), [])
+  // un pannello in basso alla volta: effetto o piano roll
+  // dal mixer: un insert apre il rack di quella traccia (o del master) su quell'effetto
+  const openFx = useCallback((target, index) => {
+    if (target === 'master') setDock({ open: true, view: 'master' })
+    else { setSel({ kind: 'track', id: target, track: target }); setDock({ open: true, view: 'track' }) }
+    setFxIndex(index)
+    setRollClip(null)
+  }, [])
+  const openRoll = useCallback(id => setRollClip(id), [])
+  useEffect(() => { if (project) player.current.setTempo(60 / project.bpm, bpb) }, [project?.bpm, bpb])
+  // fine della canzone (con la coda) per la riproduzione a pezzi; errori di render in barra
+  useEffect(() => { if (project) player.current.setSongEnd(project.duration_s + 2) }, [project?.duration_s])
+  useEffect(() => { player.current.onError = e => setErr('Playback: ' + e.message) }, [])
   const fit = () => {
     const el = document.querySelector('.arrange')
     if (!el || !project) return
@@ -287,6 +336,13 @@ export default function App() {
             title={rec === 'rec' ? 'Stop recording (R or Space)' : `Record from the microphone (R) · from the playhead, onto ${selectedTrack?.kind === 'audio' ? '"' + selectedTrack.name + '"' : 'a new "Vocals" track'} · use headphones`}
             onClick={registra}><Icon name="rec" /></button>
           {rec === 'rec' && <span className="rec-meter" title="Input level"><i ref={meterRef} /></span>}
+          {rec === 'count' && <span className="count-in">{countdown}</span>}
+          <div className="metro-wrap">
+            <button className={'icon-btn' + (player.current.metro.on ? ' on' : '')} title="Metronome (plays while playing and recording, never in the mix)"
+              onClick={() => player.current.setMetro({ on: !player.current.metro.on })}><Icon name="metronome" /></button>
+            <button className="icon-btn caret" title="Metronome settings and count-in" onClick={() => setMetroMenu(!metroMenu)}><Icon name="down" size={11} /></button>
+            {metroMenu && <MetroMenu player={player.current} onClose={() => setMetroMenu(false)} />}
+          </div>
           <span className="clock" title="bar.beat · time"><Live player={player.current} format={t => `${fmtPos(t / spb, bpb)}  ${fmtTime(t)}`} /></span>
           {loading && <span className="hint">rendering…</span>}
         </div>
@@ -314,16 +370,29 @@ export default function App() {
             <button className="icon-btn" title="Zoom out (Ctrl+wheel)" onClick={() => setPpb(z => Math.max(2, z / 1.3))}>−</button>
             <button className="icon-btn" title="Zoom in (Ctrl+wheel)" onClick={() => setPpb(z => Math.min(200, z * 1.3))}>+</button>
             <button className="icon-btn" title="Fit the whole song" onClick={fit}><Icon name="expand" size={14} /></button>
+            <button className={dock.open && dock.view === 'mixer' ? 'on' : ''} title="Mixer: all channels in the bottom panel"
+              onClick={() => setDock(d => (d.open && d.view === 'mixer' ? { ...d, open: false } : { open: true, view: 'mixer' }))}><Icon name="sliders" size={13} /> Mixer</button>
+            <button className={dock.open && dock.view === 'master' ? 'on' : ''} title="Master effects and mastering"
+              onClick={() => setDock(d => (d.open && d.view === 'master' ? { ...d, open: false } : { open: true, view: 'master' }))}>Master</button>
             <span className="hint ellipsis">{Math.round(project.bars * 100) / 100} bars · {fmtTime(project.duration_s)} · double-click a name to rename · right-click for more · Ctrl+wheel to zoom</span>
           </div>
           <Arrange project={project} ppb={ppb} setPpb={setPpb} selection={sel} setSelection={selectArr}
             run={run} player={player.current} spb={spb} onSeek={seek} loop={loop} setLoop={setLoopArr}
-            grid={arrGrid} onOpenClip={setRollClip} head={headW} onHead={setHeadW} onAddTrack={addTrack} onRecord={onRecord} />
+            grid={arrGrid} onOpenClip={openRoll} head={headW} onHead={setHeadW} onAddTrack={addTrack} onRecord={onRecord}
+            armed={armed} onArm={id => setArmed(a => (a === id ? null : id))} recLane={recLane} />
           {rc && rc.track.kind === 'midi' && <>
             <Splitter dir="y" sign={-1} value={rollH} onChange={setRollH} onReset={() => setRollH(300)}
               title="Drag to resize the piano roll · double-click to reset" />
             <PianoRoll project={project} clip={rc.clip} track={rc.track} run={run} player={player.current} height={rollH}
               grid={grid} setGrid={setGrid} spb={spb} onClose={closeRoll} /></>}
+          {dock.open && !(rc && rc.track.kind === 'midi') && <>
+            <Splitter dir="y" sign={-1} value={dockH} onChange={setDockH} onReset={() => setDockH(380)}
+              title="Drag to resize the track panel · double-click to reset" />
+            <Dock project={project} sel={sel} view={dock.view} setView={v => setDock({ open: true, view: v })}
+              fxIndex={fxIndex} setFxIndex={setFxIndex} catalog={catalog} run={run} player={player.current} revision={st.revision}
+              height={dockH} recorder={getRecorder} rec={rec} countdown={countdown} armed={armed} onArm={setArmed} onRecord={onRecord}
+              analysis={analysis} onAnalyze={analizza} onOpenClip={openRoll} playheadBar={playheadBeat / bpb + 1}
+              setSelection={selectArr} onOpenFx={openFx} onClose={() => setDock(d => ({ ...d, open: false }))} /></>}
           {!project.tracks.length && <div className="empty-song">
             <Icon name="music" size={32} />
             <p>An empty song. Start from <b>Compose</b> (form, chords, drums, bass), drop an audio or MIDI file here,
@@ -336,11 +405,8 @@ export default function App() {
         <div className="side">
           <div className="tabs">{TABS.map(([k, n]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{n}</button>)}</div>
           <div className="tab-body">
-            {tab === 'inspector' && <Inspector project={project} selection={sel} catalog={catalog} run={run}
-              playheadBar={playheadBeat / bpb + 1} onOpenClip={id => setRollClip(id)} analysis={analysis} onAnalyze={analizza} />}
             {tab === 'compose' && <Compose project={project} catalog={catalog} run={run} playheadBar={playheadBeat / bpb + 1} selectedTrack={selectedTrack} />}
             {tab === 'ai' && <AiPanel project={project} selection={sel} run={run} />}
-            {tab === 'mixer' && <Mixer project={project} run={run} selection={sel} setSelection={setSel} analysis={analysis} onAnalyze={analizza} />}
             {tab === 'chat' && <Chat llm={llm} setLlm={setLlm} refsSel={refsSel} docPath={st.path} />}
             {tab === 'versions' && <Versions revision={st.revision} run={run} />}
           </div>
@@ -368,6 +434,32 @@ export default function App() {
         setQuestion(null)
         try { await api(`/api/domanda/${id}`, { body: { risposte } }) } catch { /* scaduta */ }
       }} />}
+    </div>
+  )
+}
+
+// metronomo: suono, volume, count-in (come nei DAW: menu accanto al pulsante)
+function MetroMenu({ player, onClose }) {
+  const ref = useRef(null)
+  const [, bump] = useState(0)
+  const m = player.metro
+  const set = ch => { player.setMetro(ch); bump(x => x + 1) }
+  useEffect(() => {
+    const fuori = e => { if (!ref.current?.contains(e.target) && !e.target.closest('.metro-wrap')) onClose() }
+    window.addEventListener('pointerdown', fuori, true)
+    return () => window.removeEventListener('pointerdown', fuori, true)
+  }, [onClose])
+  return (
+    <div className="popover metro-menu" ref={ref}>
+      <label className="check"><input type="checkbox" checked={m.on} onChange={e => set({ on: e.target.checked })} /> Metronome on</label>
+      <div className="mm-sec">Sound</div>
+      <div className="seg">{['click', 'tick', 'hihat', 'clave'].map(k => <button key={k} className={m.sound === k ? 'on' : ''}
+        onClick={() => { set({ sound: k }); const c = player._ctx(); c.resume(); player.click(c.currentTime + 0.02, true) }}>{k}</button>)}</div>
+      <div className="mm-sec">Volume</div>
+      <input type="range" min={0} max={1} step={0.05} value={m.volume} onChange={e => set({ volume: Number(e.target.value) })} />
+      <div className="mm-sec">Count-in before recording</div>
+      <div className="seg">{[[0, 'Off'], [1, '1 bar'], [2, '2 bars']].map(([v, n]) => <button key={v} className={m.countIn === v ? 'on' : ''}
+        onClick={() => set({ countIn: v })}>{n}</button>)}</div>
     </div>
   )
 }

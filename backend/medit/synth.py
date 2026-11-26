@@ -607,13 +607,46 @@ def _sampler_note(p: dict, pitch: float, vel: int, n_on: int, sr: int, loader: C
 # --------------------------------------------------------------------------
 
 
+# note gia' sintetizzate: il render a pezzi rilegge le stesse note (pre-roll, code) piu' volte
+_NOTE: dict[tuple, np.ndarray] = {}
+_NOTE_BYTES = 0
+_NOTE_MAX = 300_000_000
+
+
+def _nota(chiave: tuple, fai: Callable[[], np.ndarray]) -> np.ndarray:
+    global _NOTE_BYTES
+    y = _NOTE.pop(chiave, None)
+    if y is None:
+        y = fai()
+        _NOTE_BYTES += y.nbytes
+        while _NOTE and _NOTE_BYTES > _NOTE_MAX:
+            _NOTE_BYTES -= _NOTE.pop(next(iter(_NOTE))).nbytes
+    _NOTE[chiave] = y          # in fondo: usata di recente
+    return y
+
+
+_CODA_MAX_S = 8.0   # la coda piu' lunga di una nota dopo la fine (release, decadimento)
+
+
+def _somma(out: np.ndarray, y: np.ndarray, s0: int) -> None:
+    """Somma ``y`` in ``out`` a partire da ``s0`` (anche negativo: si taglia la parte prima)."""
+    k = max(0, -s0)
+    m = min(y.shape[-1], out.shape[-1] - s0)
+    if m > k:
+        out[:, s0 + k:s0 + m] += y[:, k:m]
+
+
 def render_notes(kind: str, params: dict, notes: list[tuple[int, int, float, int]], length: int, sr: int,
-                 loader: Callable | None = None, seed: int = 0) -> np.ndarray:
+                 loader: Callable | None = None, seed: int = 0, start: int = 0) -> np.ndarray:
     """Suona ``notes`` = [(inizio, durata, altezza, velocity)] in campioni assoluti.
 
-    Restituisce (2, length). Le note che sforano la fine vengono troncate.
+    Restituisce (2, length) a partire dal campione ``start`` (0 = la canzone intera): un pezzo
+    renderizzato cosi' e' identico allo stesso tratto del render completo (stessi semi).
+    Le note che sforano la fine vengono troncate.
     """
+    coda = int(sr * _CODA_MAX_S)
     p = merged(kind, params)
+    pk = json.dumps(p, sort_keys=True, default=str)
     out = np.zeros((2, length), dtype=np.float64)
     # gli open hat suonano a parte: un hat chiuso li strozza (choke) senza toccare il resto
     aperti = np.zeros((2, length), dtype=np.float64) if kind == "drums" else None
@@ -625,18 +658,23 @@ def render_notes(kind: str, params: dict, notes: list[tuple[int, int, float, int
     prec_pitch = None
     prec_fine = -1
     for i, (s0, dur, pitch, vel) in enumerate(notes):
+        s0 = int(s0) - start            # da qui in poi: posizione dentro il pezzo
         if s0 >= length:
             continue
         dur = max(1, int(dur))
-        seme = _seme(seed, i, s0, pitch)
+        if s0 + dur + coda < 0:         # finita (coda compresa) prima del pezzo
+            if kind == "synth":
+                prec_pitch, prec_fine = pitch, s0 + dur
+            continue
+        seme = _seme(seed, i, s0 + start, pitch)
         if kind == "synth":
             glide_da = prec_pitch if (p["glide"] > 0 and prec_fine >= s0 - 1) else None
-            y = _synth_note(p, pitch, vel, dur, sr, seme, glide_da)
+            y = _nota(('synth', pk, pitch, vel, dur, sr, seme, glide_da), lambda: _synth_note(p, pitch, vel, dur, sr, seme, glide_da))
             prec_pitch, prec_fine = pitch, s0 + dur
         elif kind == "fm":
-            y = _fm_note(p, pitch, vel, dur, sr, seme)
+            y = _nota(('fm', pk, pitch, vel, dur, sr, seme), lambda: _fm_note(p, pitch, vel, dur, sr, seme))
         elif kind == "pluck":
-            y = _pluck_note(p, pitch, vel, dur, sr, seme)
+            y = _nota(('pluck', pk, pitch, vel, dur, sr, seme), lambda: _pluck_note(p, pitch, vel, dur, sr, seme))
         elif kind == "drums":
             voce, pan = _KIT_MAP.get(int(pitch), ("perc", 0.0))
             vq = int(vel) // 8
@@ -650,12 +688,13 @@ def render_notes(kind: str, params: dict, notes: list[tuple[int, int, float, int
                 for (a, b) in hat_aperti:
                     m = min(length, b) - s0
                     if a < s0 and m > 0:
-                        aperti[:, s0:s0 + m] *= np.exp(-np.arange(m) / (0.004 * sr))
+                        k = max(0, -s0)
+                        if m > k:
+                            aperti[:, s0 + k:s0 + m] *= np.exp(-np.arange(k, m) / (0.004 * sr))
                 hat_aperti = [(a, b) for (a, b) in hat_aperti if b > s0 and a >= s0]
             if int(pitch) in _HAT_OPEN:
                 hat_aperti.append((s0, s0 + y.shape[-1]))
-                m = min(y.shape[-1], length - s0)
-                aperti[:, s0:s0 + m] += y[:, :m]
+                _somma(aperti, y, s0)
                 continue
         elif kind == "sampler":
             y = _sampler_note(p, pitch, vel, dur, sr, loader)
@@ -663,9 +702,7 @@ def render_notes(kind: str, params: dict, notes: list[tuple[int, int, float, int
                 continue
         else:
             raise ValueError(f"unknown instrument type {kind!r}")
-        m = min(y.shape[-1], length - s0)
-        if m > 0:
-            out[:, s0:s0 + m] += y[:, :m]
+        _somma(out, y, s0)
     if aperti is not None:
         out += aperti
     if kind == "drums" and p["crush"]:

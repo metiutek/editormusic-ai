@@ -44,7 +44,15 @@ const testo = w.document.body.textContent
 assert.deepEqual(errori, [])
 assert.ok(testo.includes('Chords'), 'track not rendered')
 assert.ok(testo.includes('verse'), 'sections not rendered')
-for (const t of ['Inspector', 'Compose', 'AI', 'Mixer', 'Assistant', 'Versions']) assert.ok(testo.includes(t), `tab ${t} missing`)
+for (const t of ['Assistant', 'AI tools', 'Compose', 'Versions', 'Mixer', 'Master']) assert.ok(testo.includes(t), `${t} missing`)
+assert.ok(w.document.querySelector('.metro-wrap'), 'metronome missing')
+
+// selezionare una traccia apre il pannello in basso con preset, manopole rapide e rack
+w.document.querySelector('.track-head').dispatchEvent(new w.MouseEvent('pointerdown', { bubbles: true }))
+await new Promise(r => setTimeout(r, 100))
+assert.ok(w.document.querySelector('.dock .rack .fx-add'), 'track panel did not open')
+assert.ok(w.document.querySelector('.dock .preset-bar'), 'preset bar missing')
+assert.equal(w.document.querySelectorAll('.dock .quick-knobs .knob').length, 3, 'quick knobs missing')
 assert.ok(w.document.querySelector('.transport .play'), 'transport missing')
 assert.ok(w.document.querySelector('.clip .mininotes'), 'clip notes missing')
 

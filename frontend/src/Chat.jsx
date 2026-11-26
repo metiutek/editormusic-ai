@@ -170,7 +170,7 @@ export default function Chat({ llm, setLlm, refsSel, docPath }) {
       setErrAll('')
     } catch (e) { setErrAll(e.message) }
   }
-  useEffect(() => { endRef.current?.scrollIntoView({ block: 'end' }) }, [msgs])
+  useEffect(() => { endRef.current?.scrollIntoView?.({ block: 'end' }) }, [msgs])
   // ogni documento ha la sua chat, salvata accanto al file: riaprendolo torna
   useEffect(() => {
     let vivo = true

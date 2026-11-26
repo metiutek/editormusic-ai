@@ -2,7 +2,7 @@
 // Gli slider mandano l'operazione al rilascio: un gesto = un undo.
 import { useEffect, useState } from 'react'
 import Icon from './Icons.jsx'
-import { fmtNum, rangeFor, stepFor, titleCase } from './util.js'
+import { fmtNum, rangeFor, titleCase } from './util.js'
 import { useCommitOnRelease } from './Widgets.jsx'
 
 export function Slider({ label, value, min, max, step, unit = '', onCommit, title }) {
@@ -55,37 +55,27 @@ function VocalTools({ track, run }) {
   )
 }
 
-export function EffectChain({ target, effects, catalog, chains, run }) {
+// Clic su un effetto: si apre il suo pannello in basso (FxPanel) con tutti i parametri.
+export function EffectChain({ target, effects, catalog, chains, run, fx, onOpenFx }) {
   const [add, setAdd] = useState('')
-  const [open, setOpen] = useState(null)
   const byName = Object.fromEntries((catalog || []).map(e => [e.name, e]))
   return (
     <div className="chain">
       <h4><Icon name="sliders" size={13} /> Effects</h4>
       {!effects.length && <p className="hint">No effects. Order matters: EQ → compressor → saturation → modulation → delay/reverb.</p>}
+      {effects.length > 0 && <p className="hint">Click an effect to open all its controls below.</p>}
       {effects.map((e, i) => {
-        const spec = byName[e.type]
-        const params = { ...Object.fromEntries(Object.entries(spec?.params || {}).map(([k, p]) => [k, p.default])), ...(e.params || {}) }
+        const aperto = fx?.target === target && fx?.index === i
         return (
-          <div key={i} className={'fx' + (e.enabled === false ? ' off' : '')}>
+          <div key={i} className={'fx' + (e.enabled === false ? ' off' : '') + (aperto ? ' open' : '')}>
             <div className="fx-head">
               <input type="checkbox" checked={e.enabled !== false} title="On/off"
                 onChange={ev => run('update_effect', { target, index: i, enabled: ev.target.checked })} />
-              <b className="grow" onClick={() => setOpen(open === i ? null : i)}>{titleCase(e.type)}</b>
+              <b className="grow" title={byName[e.type]?.desc} onClick={() => onOpenFx(target, i)}>{titleCase(e.type)}</b>
               <button className="icon-btn" title="Move up" disabled={i === 0} onClick={() => run('move_effect', { target, index: i, to: i - 1 })}><Icon name="up" size={12} /></button>
               <button className="icon-btn" title="Move down" disabled={i === effects.length - 1} onClick={() => run('move_effect', { target, index: i, to: i + 1 })}><Icon name="down" size={12} /></button>
               <button className="icon-btn" title="Remove" onClick={() => run('remove_effect', { target, index: i })}><Icon name="trash" size={12} /></button>
             </div>
-            {open === i && spec && Object.entries(spec.params).map(([k, p]) => {
-              if (p.type === 'bool') return (
-                <label key={k} className="check"><input type="checkbox" checked={!!params[k]}
-                  onChange={ev => run('update_effect', { target, index: i, params: { [k]: ev.target.checked } })} /> {p.desc || k}</label>)
-              if (p.type === 'choice') return (
-                <Field key={k} label={k}><select value={params[k]} onChange={ev => run('update_effect', { target, index: i, params: { [k]: ev.target.value } })}>
-                  {p.choices.map(c => <option key={c}>{c}</option>)}</select></Field>)
-              return <Slider key={k} label={e.type === 'graphic_eq' && k[0] === 'g' ? p.desc : k.replace(/_/g, ' ')} title={p.desc} value={params[k]} min={p.min ?? 0} max={p.max ?? 1} step={stepFor(p)} unit={p.unit}
-                onCommit={v => run('update_effect', { target, index: i, params: { [k]: v } })} />
-            })}
           </div>)
       })}
       <div className="row">
@@ -98,7 +88,7 @@ export function EffectChain({ target, effects, catalog, chains, run }) {
           })}
           {(catalog || []).filter(e => !GROUPS.some(([g]) => g === e.group)).map(e => <option key={e.name} value={e.name}>{titleCase(e.name)} — {e.desc}</option>)}
         </select>
-        <button disabled={!add} onClick={() => { run('add_effect', { target, type: add }); setOpen(effects.length); setAdd('') }}>Add</button>
+        <button disabled={!add} onClick={async () => { const r = await run('add_effect', { target, type: add }); if (r) onOpenFx(target, r.result.index); setAdd('') }}>Add</button>
       </div>
       <div className="row">
         <select className="grow" defaultValue="" onChange={e => { if (e.target.value) run('apply_chain', { target, name: e.target.value }); e.target.value = '' }}>
@@ -112,7 +102,7 @@ export function EffectChain({ target, effects, catalog, chains, run }) {
   )
 }
 
-function Instrument({ track, catalog, run }) {
+export function Instrument({ track, catalog, run }) {
   const [open, setOpen] = useState(false)
   const tipo = track.instrument_type
   const params = track.instrument_params || {}
@@ -149,7 +139,7 @@ function Instrument({ track, catalog, run }) {
   )
 }
 
-function TrackInspector({ track, project, catalog, run }) {
+function TrackInspector({ track, project, catalog, run, fx, onOpenFx }) {
   const buses = project.tracks.filter(t => t.kind === 'bus' && t.id !== track.id)
   const sends = Object.fromEntries((track.sends || []).map(s => [s.bus, s.level_db]))
   return (
@@ -168,7 +158,7 @@ function TrackInspector({ track, project, catalog, run }) {
       <Slider label="Pan" value={track.pan || 0} min={-1} max={1} step={0.05} onCommit={v => run('set_track', { track: track.id, pan: v })} />
       {track.kind === 'midi' && <Instrument track={track} catalog={catalog} run={run} />}
       {track.kind === 'audio' && <VocalTools track={track} run={run} />}
-      <EffectChain target={track.id} effects={track.effects || []} catalog={catalog.effects} chains={catalog.chains} run={run} />
+      <EffectChain target={track.id} effects={track.effects || []} catalog={catalog.effects} chains={catalog.chains} run={run} fx={fx} onOpenFx={onOpenFx} />
       {track.kind !== 'bus' && <div className="sends">
         <h4>Sends</h4>
         {!buses.length && <p className="hint">No buses. A bus shares one reverb or delay among many tracks.
@@ -193,7 +183,7 @@ function TrackInspector({ track, project, catalog, run }) {
   )
 }
 
-function ClipInspector({ clip, track, run, playheadBar, onOpen }) {
+export function ClipInspector({ clip, track, run, playheadBar, onOpen }) {
   const id = clip.id
   return (
     <div className="inspector">
@@ -222,7 +212,7 @@ function ClipInspector({ clip, track, run, playheadBar, onOpen }) {
   )
 }
 
-function SectionInspector({ section, run }) {
+export function SectionInspector({ section, run }) {
   const id = section.id
   return (
     <div className="inspector">
@@ -251,13 +241,71 @@ function Lyrics({ section, run }) {
   )
 }
 
-function MasterInspector({ project, catalog, run, analysis, onAnalyze }) {
+// Il master nel pannello in basso: volume e mastering (gli effetti stanno nel rack)
+export function MasteringPanel({ project, run, analysis, onAnalyze }) {
+  const [lufs, setLufs] = useState(-14)
+  return (
+    <div className="inspector wide">
+      <Slider label="Master volume" value={project.master.volume_db} min={-24} max={12} step={0.5} unit="dB" onCommit={v => run('set_master', { volume_db: v })} />
+      <div className="row">
+        <Field label="Target LUFS"><input type="number" value={lufs} step={1} onChange={e => setLufs(Number(e.target.value))} /></Field>
+        <button className="primary" onClick={() => run('auto_master', { target_lufs: lufs })}>Auto master</button>
+        <button onClick={onAnalyze}>Measure</button>
+      </div>
+      <p className="hint">-14 LUFS for streaming, -9 for club. Ceiling -1 dBTP.</p>
+      {analysis && <Measures a={analysis} />}
+    </div>
+  )
+}
+
+// Impostazioni della traccia nel pannello in basso: nome, colore, ruolo, livello, mandate, automazioni
+export function TrackSettings({ track, project, run }) {
+  const buses = project.tracks.filter(t => t.kind === 'bus' && t.id !== track.id)
+  const sends = Object.fromEntries((track.sends || []).map(s => [s.bus, s.level_db]))
+  return (
+    <div className="inspector wide cols">
+      <div>
+        <div className="row">
+          <input type="color" value={track.color || '#4f8fd9'} onChange={e => run('set_track', { track: track.id, color: e.target.value })} />
+          <TextCommit className="grow" value={track.name} onCommit={v => run('set_track', { track: track.id, name: v })} />
+          <Field label="Role"><select value={track.role || ''} onChange={e => run('set_track', { track: track.id, role: e.target.value })}>
+            {['', 'drums', 'bass', 'chords', 'pad', 'lead', 'vocal', 'arp', 'fx'].map(r => <option key={r} value={r}>{r || '—'}</option>)}</select></Field>
+        </div>
+        <Slider label="Volume" value={track.volume_db} min={-60} max={12} step={0.5} unit="dB" onCommit={v => run('set_track', { track: track.id, volume_db: v })} />
+        <Slider label="Pan" value={track.pan || 0} min={-1} max={1} step={0.05} onCommit={v => run('set_track', { track: track.id, pan: v })} />
+        <div className="row">
+          <button onClick={() => run('duplicate_track', { track: track.id })}><Icon name="copy" size={13} /> Duplicate</button>
+          <button onClick={() => { if (confirm(`Delete the track "${track.name}"?`)) run('remove_track', { track: track.id }) }}><Icon name="trash" size={13} /> Delete</button>
+        </div>
+      </div>
+      {track.kind !== 'bus' && <div className="sends">
+        <h4>Sends</h4>
+        {!buses.length && <p className="hint">No buses. A bus shares one reverb or delay among many tracks.
+          <button className="link" onClick={() => run('add_bus', { name: 'Reverb' })}>Add a reverb bus</button></p>}
+        {buses.map(b => sends[b.id] !== undefined
+          ? <div key={b.id} className="row"><Slider label={b.name} value={sends[b.id]} min={-40} max={0} step={0.5} unit="dB"
+            onCommit={v => run('set_send', { track: track.id, bus: b.id, level_db: v })} />
+            <button className="icon-btn" title="Stop sending" onClick={() => run('set_send', { track: track.id, bus: b.id, remove: true })}>✕</button></div>
+          : <button key={b.id} onClick={() => run('set_send', { track: track.id, bus: b.id, level_db: -12 })}>+ send to {b.name}</button>)}
+      </div>}
+      <div className="autom">
+        <h4>Automation</h4>
+        {!track.automation?.length && <p className="hint">None. Ask the Assistant, e.g. “fade the volume in over the intro”.</p>}
+        {(track.automation || []).map(a => <div key={a.target} className="row"><span className="grow">{a.target}</span>
+          <span className="hint">{Array.isArray(a.points) ? a.points.length : a.points} points</span>
+          <button className="icon-btn" title="Remove" onClick={() => run('clear_automation', { track: track.id, target: a.target })}>✕</button></div>)}
+      </div>
+    </div>
+  )
+}
+
+function MasterInspector({ project, catalog, run, analysis, onAnalyze, fx, onOpenFx }) {
   const [lufs, setLufs] = useState(-14)
   return (
     <div className="inspector">
       <h4>Master</h4>
       <Slider label="Volume" value={project.master.volume_db} min={-24} max={12} step={0.5} unit="dB" onCommit={v => run('set_master', { volume_db: v })} />
-      <EffectChain target="master" effects={project.master.effects || []} catalog={catalog.effects} chains={catalog.chains} run={run} />
+      <EffectChain target="master" effects={project.master.effects || []} catalog={catalog.effects} chains={catalog.chains} run={run} fx={fx} onOpenFx={onOpenFx} />
       <h4>Mastering</h4>
       <div className="row">
         <Field label="Target LUFS"><input type="number" value={lufs} step={1} onChange={e => setLufs(Number(e.target.value))} /></Field>
@@ -284,7 +332,7 @@ export function Measures({ a }) {
   )
 }
 
-export default function Inspector({ project, selection, catalog, run, playheadBar, onOpenClip, analysis, onAnalyze }) {
+export default function Inspector({ project, selection, catalog, run, playheadBar, onOpenClip, analysis, onAnalyze, fx, onOpenFx }) {
   if (selection?.kind === 'clip') {
     for (const t of project.tracks) {
       const c = t.clips.find(c => c.id === selection.id)
@@ -293,11 +341,11 @@ export default function Inspector({ project, selection, catalog, run, playheadBa
   }
   if (selection?.kind === 'track') {
     const t = project.tracks.find(t => t.id === selection.id)
-    if (t) return <TrackInspector track={t} project={project} catalog={catalog} run={run} />
+    if (t) return <TrackInspector track={t} project={project} catalog={catalog} run={run} fx={fx} onOpenFx={onOpenFx} />
   }
   if (selection?.kind === 'section') {
     const s = project.sections.find(s => s.id === selection.id)
     if (s) return <SectionInspector section={s} run={run} />
   }
-  return <MasterInspector project={project} catalog={catalog} run={run} analysis={analysis} onAnalyze={onAnalyze} />
+  return <MasterInspector project={project} catalog={catalog} run={run} analysis={analysis} onAnalyze={onAnalyze} fx={fx} onOpenFx={onOpenFx} />
 }

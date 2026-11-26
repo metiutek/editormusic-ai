@@ -87,11 +87,19 @@ export default function AiPanel({ project, selection, run }) {
 
   const clip = selection?.kind === 'clip' ? project.tracks.flatMap(t => t.clips.map(c => ({ ...c, kind: t.kind }))).find(c => c.id === selection.id) : null
   const audio = clip && clip.kind === 'audio' ? clip : null
+  const [t0, setT0] = useState(0)
+  const [, tick] = useState(0)
+  useEffect(() => {
+    if (!lavoro) return
+    const id = setInterval(() => tick(x => x + 1), 1000)
+    return () => clearInterval(id)
+  }, [lavoro])
   const vai = async (nome, body, etichetta) => {
     setLavoro(etichetta)
-    await run(nome, body)
-    setLavoro('')
+    setT0(Date.now())
+    try { await run(nome, body) } finally { setLavoro('') }
   }
+  const trascorso = Math.floor((Date.now() - t0) / 1000)
   const haSezioniTesto = project.sections.some(s => s.lyrics)
   const puoSeparare = stem && (stem.uvr.ok || stem.demucs.ok)
   const sepBody = { engine: sep.engine, ...(sep.model ? { model: sep.model } : {}) }
@@ -101,7 +109,7 @@ export default function AiPanel({ project, selection, run }) {
 
   return (
     <div className="aipanel">
-      {lavoro && <p className="busy">{lavoro}… (this can take minutes; you can keep editing)</p>}
+      {lavoro && <p className="busy">{lavoro}… {Math.floor(trascorso / 60)}:{String(trascorso % 60).padStart(2, '0')} (a full song can take a few minutes; you can keep editing)</p>}
 
       <section>
         <h4><Icon name="scissors" size={13} /> On the selected audio clip</h4>

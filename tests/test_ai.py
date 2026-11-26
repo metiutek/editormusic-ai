@@ -365,3 +365,34 @@ def test_uvr_installer_keeps_applio_torch():
     pip = cmds[2]
     assert "--upgrade" not in pip and "-c" in pip
     assert uvr.comando_installazione.vincoli[1] == ["torch==2.11.0", "torchvision==0.26.0"]
+
+
+def test_uvr_exit_error_after_writing_stems_is_kept(store, tone_wav, tmp_path, monkeypatch):
+    comandi = _uvr_finto(tmp_path, monkeypatch)
+    buono = comandi.run
+
+    def run_che_esce_male(cmd, capture_output=True, timeout=0, env=None):
+        buono(cmd, capture_output, timeout, env)
+
+        class R:
+            returncode, stdout, stderr = 3221226505, b"", b"CUDA cleanup crashed"
+        return R()
+
+    monkeypatch.setattr(uvr.subprocess, "run", run_che_esce_male)
+    r = store.add_audio(path=tone_wav)
+    s = store.separate_stems(r["id"])
+    assert {x["stem"] for x in s["stems"]} == {"Vocals", "Instrumental"}
+    cartella = next((store.assets_dir() / "stems").glob("*_uvr_*"))
+    assert "CUDA cleanup crashed" in (cartella / "uvr.log").read_text(encoding="utf-8")
+
+
+def test_uvr_partial_output_is_not_reused(store, tone_wav, tmp_path, monkeypatch):
+    comandi = _uvr_finto(tmp_path, monkeypatch)
+    r = store.add_audio(path=tone_wav)
+    a = store.project.asset(store.project.tracks[0].clips[0].asset)
+    # una sessione interrotta ha lasciato un solo stem: si rifa' la separazione
+    cartella = store.assets_dir() / "stems" / f"{a.id}_uvr_UVR-MDX-NET-Inst_HQ_3"
+    cartella.mkdir(parents=True)
+    shutil.copyfile(tone_wav, cartella / "x_(Vocals)_UVR-MDX-NET-Inst_HQ_3.wav")
+    s = store.separate_stems(r["id"])
+    assert len(comandi) == 1 and {x["stem"] for x in s["stems"]} == {"Vocals", "Instrumental"}

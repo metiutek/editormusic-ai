@@ -193,9 +193,15 @@ def separa(src: Path, outdir: Path, model: str | None = None, timeout: float = 3
     except subprocess.TimeoutExpired as exc:
         raise UvrError("UVR separation took too long") from exc
     nuovi = sorted(set(outdir.glob("*.wav")) - prima)
-    if p.returncode != 0 or not nuovi:
-        coda = (p.stderr or p.stdout or b"").decode("utf-8", "replace")[-700:]
-        raise UvrError(f"UVR separation with {nome} failed: {coda}")
+    log = "\n".join((x or b"").decode("utf-8", "replace") for x in (p.stdout, p.stderr))
+    try:
+        (outdir / "uvr.log").write_text(log, encoding="utf-8")   # per capire cosa e' successo
+    except OSError:
+        pass
+    # audio-separator a volte esce con un errore *dopo* aver scritto gli stem (pulizia di CUDA,
+    # avvisi): se gli stem ci sono tutti, il lavoro e' buono
+    if not nuovi or (p.returncode != 0 and len(nuovi) < 2):
+        raise UvrError(f"UVR separation with {nome} failed: {log.strip()[-700:]}")
     return {_nome_stem(f): f for f in nuovi}
 
 
