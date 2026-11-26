@@ -13,6 +13,7 @@ import Inspector from './Inspector.jsx'
 import Mixer from './Mixer.jsx'
 import PianoRoll from './PianoRoll.jsx'
 import { Player } from './player.js'
+import { Recorder, encodeWav, trimStart } from './recorder.js'
 import Splitter, { useSize } from './Splitter.jsx'
 import Versions from './Versions.jsx'
 import { Live } from './Widgets.jsx'
@@ -103,8 +104,80 @@ export default function App() {
     } catch (e) { setErr(e.message); return null } finally { if (lenti.includes(name)) setBusy('') }
   }, [])
 
+  // ---- registrazione dal microfono ----
+  const [rec, setRec] = useState('')          // '' | arming | rec | saving
+  const recorder = useRef(null)
+  const recInfo = useRef(null)
+  const meterRef = useRef(null)
+  const stRef = useRef(st)
+  stRef.current = st
+  const selTrackRef = useRef(null)
+
+  const fermaRec = async () => {
+    const p = player.current
+    const r = recorder.current
+    const info = recInfo.current
+    if (!r || !info) return
+    setRec('saving')
+    const lat = r.latency()
+    let res
+    try { res = await r.stop() } catch (e) { setErr(e.message); setRec(''); return }
+    p.stop()
+    p.setLoop(info.loopPrima)
+    // dove sta nella canzone il primo campione: ancora del player + latenza di andata e ritorno
+    let song0 = info.anchor.song + (res.startTime - info.anchor.ctx) - lat
+    let ch = res.channels
+    if (song0 < 0) { ch = trimStart(ch, res.sampleRate, -song0); song0 = 0 }
+    if (!ch.length || ch[0].length < res.sampleRate * 0.25) { setRec(''); setErr('Recording too short'); return }
+    const fd = new FormData()
+    fd.append('file', encodeWav(ch, res.sampleRate), 'take.wav')
+    fd.append('bar', String(song0 / spbRef.current / info.bpb + 1))
+    if (info.target) fd.append('track', info.target)
+    setBusy('saving take…')
+    try {
+      const s = await api('/api/record', { body: fd })
+      setSt(s)
+      const tid = s.result?.track_id
+      if (tid) setSel({ kind: 'track', id: tid, track: tid })
+      setErr('')
+    } catch (e) { setErr(e.message) }
+    setBusy('')
+    setRec('')
+  }
+
+  const registra = async trackId => {
+    if (rec === 'rec') { fermaRec(); return }
+    if (rec) return
+    const p = player.current
+    const r = recorder.current || (recorder.current = new Recorder(() => p._ctx()))
+    setRec('arming')
+    try { await r.open() } catch (e) {
+      setRec('')
+      setErr(e.name === 'NotAllowedError' ? 'Microphone blocked: allow it in the browser (icon in the address bar)' : 'Microphone: ' + (e.message || e.name))
+      return
+    }
+    r.onLevel = l => { if (meterRef.current) meterRef.current.style.transform = `scaleX(${(1 - Math.min(1, l)).toFixed(3)})` }
+    const t = typeof trackId === 'string' ? trackId : selTrackRef.current?.kind === 'audio' ? selTrackRef.current.id : ''
+    const loopPrima = p.loop
+    if (p.playing) p.stop()
+    p.loop = null                     // si registra in linea retta
+    const at = p.offset
+    const cur = stRef.current
+    try { if (cur.project.tracks.some(x => x.clips.length)) await p.play(cur.revision, at) } catch { /* canzone vuota: si registra lo stesso */ }
+    const ctx = p._ctx()
+    const anchor = p.playing ? { ctx: p.startedAt, song: p.offset } : { ctx: ctx.currentTime, song: at }
+    const pr = cur.project
+    recInfo.current = { target: t, anchor, loopPrima, bpb: (pr.time_sig[0] * 4) / pr.time_sig[1] }
+    r.start()
+    setRec('rec')
+  }
+  const registraRef = useRef(registra)
+  registraRef.current = registra
+  const onRecord = useCallback(id => registraRef.current(id), [])
+
   const playPause = async () => {
     const p = player.current
+    if (rec === 'rec') { fermaRec(); return }
     if (p.playing) { p.stop(); return }
     try { await p.play(st.revision, loopOn && loop ? Math.max(p.offset, loop[0] * spb) : p.offset) } catch (e) { setErr(e.message) }
   }
@@ -135,6 +208,7 @@ export default function App() {
       else if (e.key === 'Escape') { if (rollClip) setRollClip(null); else setSel(null) }
       else if (e.key === 'Home') seek(0)
       else if (e.key === 'l' || e.key === 'L') setLoopOn(x => !x)
+      else if ((e.key === 'r' || e.key === 'R') && !mod) { e.preventDefault(); registra() }
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
@@ -158,6 +232,7 @@ export default function App() {
   }
 
   const selectedTrack = useMemo(() => project?.tracks.find(t => t.id === (sel?.track || sel?.id)) || null, [project, sel])
+  selTrackRef.current = selectedTrack
   const rc = useMemo(() => {
     if (!rollClip || !project) return null
     for (const t of project.tracks) {
@@ -192,7 +267,7 @@ export default function App() {
   if (!st) return <div className="loading">{err || 'Loading medit…'}</div>
 
   return (
-    <div className="app" onDragOver={e => e.preventDefault()} onDrop={onDrop}>
+    <div className={'app' + (rec === 'rec' ? ' recording' : '')} onDragOver={e => e.preventDefault()} onDrop={onDrop}>
       <div className="topbar">
         <img className="logo" src="./logo.svg" alt="" /><b className="brand">medit</b>
         <span className="docname" title={st.path || 'not saved'}>{project?.name}{st.path ? '' : ' •'}</span>
@@ -208,6 +283,10 @@ export default function App() {
           <button className={'icon-btn play' + (playing ? ' on' : '')} title="Play / pause (Space)" onClick={playPause}>
             <Icon name={playing ? 'pause' : 'play'} /></button>
           <button className={'icon-btn' + (loopOn ? ' on' : '')} title="Loop (L): drag on the ruler to set the region" onClick={() => setLoopOn(!loopOn)}><Icon name="loop" /></button>
+          <button className={'icon-btn rec-btn' + (rec ? ' ' + rec : '')} disabled={rec === 'arming' || rec === 'saving'}
+            title={rec === 'rec' ? 'Stop recording (R or Space)' : `Record from the microphone (R) · from the playhead, onto ${selectedTrack?.kind === 'audio' ? '"' + selectedTrack.name + '"' : 'a new "Vocals" track'} · use headphones`}
+            onClick={registra}><Icon name="rec" /></button>
+          {rec === 'rec' && <span className="rec-meter" title="Input level"><i ref={meterRef} /></span>}
           <span className="clock" title="bar.beat · time"><Live player={player.current} format={t => `${fmtPos(t / spb, bpb)}  ${fmtTime(t)}`} /></span>
           {loading && <span className="hint">rendering…</span>}
         </div>
@@ -239,7 +318,7 @@ export default function App() {
           </div>
           <Arrange project={project} ppb={ppb} setPpb={setPpb} selection={sel} setSelection={selectArr}
             run={run} player={player.current} spb={spb} onSeek={seek} loop={loop} setLoop={setLoopArr}
-            grid={arrGrid} onOpenClip={setRollClip} head={headW} onHead={setHeadW} onAddTrack={addTrack} />
+            grid={arrGrid} onOpenClip={setRollClip} head={headW} onHead={setHeadW} onAddTrack={addTrack} onRecord={onRecord} />
           {rc && rc.track.kind === 'midi' && <>
             <Splitter dir="y" sign={-1} value={rollH} onChange={setRollH} onReset={() => setRollH(300)}
               title="Drag to resize the piano roll · double-click to reset" />

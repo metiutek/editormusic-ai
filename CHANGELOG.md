@@ -1,5 +1,18 @@
 # Changelog
 
+## Non rilasciato
+
+- **Registrazione dal microfono**: R o il tasto rosso; la canzone suona, la ripresa (WAV float dal
+  segnale grezzo, AudioWorklet) parte dal cursore con la latenza compensata e va sulla traccia audio
+  scelta o su una nuova "Vocals"; se si sovrappone a una ripresa vecchia va su una traccia sotto.
+  `POST /api/record`, un solo undo.
+- **Auto-Tune** (`autotune`): YIN + TD-PSOLA, scala della canzone o scelta, velocita' di correzione
+  (0 = robotico), humanize, formanti intatte. Pulsanti Auto-Tune / Hard tune / Pop vocal chain / Double
+  nell'Inspector delle tracce audio; catene `vocal tuned`, `vocal hard tune`, `vocal pop`.
+- Effetti nuovi: `pitch_shift` (phase vocoder, o PSOLA per la voce), `vibrato`, `doubler`, `phaser`,
+  `ring_mod`, `exciter`, `graphic_eq` (10 bande), `transient`, `multiband`. Il menu effetti e'
+  diviso per categoria.
+
 ## 0.3.0 — 2026-11-26
 
 - Modelli di **Ultimate Vocal Remover** (MDX-Net, VR, MDX23C, Roformer): `separate_stems(engine="uvr")`

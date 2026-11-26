@@ -508,6 +508,46 @@ async def upload(files: list[UploadFile] = File(...), bar: str = Form("1"), trac
     return await asyncio.to_thread(importa, ImportBody(paths=salvati, bar=float(bar or 1), track=track or None))
 
 
+@app.post("/api/record")
+async def registra(file: UploadFile = File(...), bar: str = Form("1"), track: str = Form("")) -> dict:
+    """Una ripresa dal microfono (WAV fatto dal browser) su una traccia audio, dal punto in cui e'
+    partita. Senza traccia, o se quella scelta non e' audio, ne crea una "Vocals". Un solo undo."""
+    st = S.need()
+    dest = st.assets_dir() / "recordings"
+    dest.mkdir(parents=True, exist_ok=True)
+    target = dest / f"take_{uuid.uuid4().hex[:8]}.wav"
+    with target.open("wb") as out:
+        shutil.copyfileobj(file.file, out)
+
+    def fai() -> dict:
+        try:
+            with S.lock, st.batch():
+                t = None
+                if track:
+                    try:
+                        t = st.project.track(track)
+                    except KeyError:
+                        t = None
+                if t is None or t.kind != "audio":
+                    t = st.project.track(st.add_track(kind="audio", name="Vocals")["id"])
+                r = st.add_audio(path=str(target), bar=max(1.0, float(bar or 1)), track=t.id,
+                                 name=f"Take {len(t.clips) + 1}", detect=False)
+                # sopra una ripresa vecchia: traccia nuova subito sotto, cosi' si confrontano
+                # con mute/solo invece di suonare insieme
+                c = next(x for x in t.clips if x.id == r["id"])
+                if any(o.id != c.id and o.start < c.start + c.length and c.start < o.start + o.length for o in t.clips):
+                    i = st.project.tracks.index(t)
+                    nt = st.add_track(kind="audio", name=f"{t.name} {sum(x.kind == 'audio' for x in st.project.tracks) + 1}",
+                                      index=i + 1)
+                    st.set_clip(c.id, track=nt["id"])
+                    r = {**r, "track": nt["name"], "track_id": nt["id"]}
+        except (EditError, OSError, ValueError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {**S.state(), "result": r}
+
+    return await asyncio.to_thread(fai)
+
+
 class ExportBody(BaseModel):
     path: str
     kind: str = "audio"          # audio | stems | midi

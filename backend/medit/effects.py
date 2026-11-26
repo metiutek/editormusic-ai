@@ -18,7 +18,9 @@ import numpy as np
 from scipy.ndimage import minimum_filter1d, uniform_filter1d
 from scipy.signal import fftconvolve, lfilter, resample_poly
 
+from . import intonazione
 from .synth import _pan_gains, biquad, filter_sweep
+from .theory import SCALES, TheoryError, scale_pcs
 
 
 def _db(x):
@@ -385,6 +387,141 @@ def fx_lofi(x, sr, p, ctx):
     return y
 
 
+def _pcs(p, ctx) -> list[int]:
+    """Le note permesse dall'autotune: la tonalita' della canzone o quella scelta."""
+    key = ctx.get("key", "C") if p["key"] == "song" else p["key"]
+    mode = ctx.get("mode", "major") if p["scale"] == "song" else p["scale"]
+    try:
+        return scale_pcs(key, mode)
+    except TheoryError:
+        return list(range(12))
+
+
+def fx_autotune(x, sr, p, ctx):
+    """Correzione d'intonazione sulla scala, con le formanti al loro posto."""
+    lo, hi = {"bass": (50.0, 400.0), "low": (70.0, 600.0), "high": (120.0, 1200.0)}.get(p["range"], (70.0, 1000.0))
+    return intonazione.autotune(x, sr, _pcs(p, ctx), p["speed_ms"], p["amount"], p["humanize"], lo, hi)
+
+
+def fx_pitch_shift(x, sr, p, ctx):
+    semi = p["semitones"] + p["cents"] / 100.0
+    if p["mode"] == "voice":
+        f0, dt = intonazione.f0_track(x.mean(axis=0), sr)
+        return intonazione.psola(x, sr, f0, dt, np.full(len(f0), semi))
+    return intonazione.pitch_shift(x, semi)
+
+
+def fx_doubler(x, sr, p, ctx):
+    """Doppia ripresa finta: due copie un po' in ritardo e stonate, aperte ai lati."""
+    n = x.shape[-1]
+    t = np.arange(n) / sr
+    m = x.mean(axis=0)
+    base = p["delay_ms"] / 1000.0
+    # una deriva lenta del ritardo = un leggero cambio d'altezza, come una seconda voce
+    dep = p["detune"] * 0.004
+    l = _mod_delay(m, sr, base + dep * (0.5 + 0.5 * np.sin(2 * np.pi * 0.31 * t)))
+    r = _mod_delay(m, sr, base * 1.37 + dep * (0.5 + 0.5 * np.sin(2 * np.pi * 0.23 * t + 1.3)))
+    w = p["width"]
+    return np.stack([x[0] + l * (0.5 + 0.5 * w) + r * (0.5 - 0.5 * w),
+                     x[1] + r * (0.5 + 0.5 * w) + l * (0.5 - 0.5 * w)]) * 0.7
+
+
+def fx_phaser(x, sr, p, ctx):
+    """Phaser: catena di passa-tutto che si sposta con un LFO."""
+    n = x.shape[-1]
+    stadi = int(p["stages"])
+    rate = p["rate"] if p["rate_beats"] <= 0 else ctx["bpm"] / 60.0 / p["rate_beats"]
+    blocco = 128
+    t = np.arange(0, n, blocco) / sr
+    lo, hi = np.log2(max(20, p["min"])), np.log2(max(40, p["max"]))
+    fc = 2 ** (lo + (hi - lo) * 0.5 * (1 - np.cos(2 * np.pi * rate * t)))
+    tn = np.tan(np.pi * np.clip(fc, 20, sr * 0.45) / sr)
+    coef = (tn - 1) / (tn + 1)
+    out = np.empty_like(x)
+    zi = np.zeros((x.shape[0], stadi))
+    fb = float(p["feedback"])
+    prec = np.zeros(x.shape[0])
+    for i, c in enumerate(coef.tolist()):
+        a0, a1 = i * blocco, min(n, (i + 1) * blocco)
+        b = np.array([1.0])
+        a = np.array([1.0])
+        for _ in range(stadi):
+            b = np.convolve(b, [c, 1.0])
+            a = np.convolve(a, [1.0, c])
+        out[:, a0:a1], zi = lfilter(b, a, x[:, a0:a1] + fb * prec[:, None], axis=-1, zi=zi)
+        prec = out[:, a1 - 1]
+    return (x + out) * 0.5
+
+
+def fx_exciter(x, sr, p, ctx):
+    """Exciter: armoniche nuove sugli acuti (aria, presenza) senza alzare l'EQ."""
+    b, a = biquad("highpass", p["freq"], 0.707, sr)
+    alto = lfilter(b, a, x, axis=-1)
+    k = 1 + 8 * p["drive"]
+    sat = np.tanh(alto * k) / np.tanh(k) - alto
+    return x + lfilter(b, a, sat, axis=-1) * p["amount"] * 2.0
+
+
+def fx_transient(x, sr, p, ctx):
+    """Transient shaper: piu' (o meno) colpo e piu' (o meno) coda, senza soglia."""
+    lev = np.abs(x).max(axis=0)
+    veloce = envelope(lev, sr, 0.5, 40.0, hop=16)
+    lento = envelope(lev, sr, 25.0, 250.0, hop=16)
+    att = np.clip(_to_db(veloce) - _to_db(lento), 0, 24) / 24.0
+    sus = np.clip(_to_db(lento) - _to_db(veloce), 0, 24) / 24.0
+    g = _db(p["attack"] * att * 2.0 + p["sustain"] * sus * 2.0)
+    return x * uniform_filter1d(g, size=max(1, int(sr * 0.001))) * _db(p["output_db"])
+
+
+def _bande(x, sr, f1, f2):
+    """Tre bande che sommate ridanno il segnale."""
+    def lr(kind, f, y):
+        b, a = biquad(kind, f, 0.707, sr)
+        return lfilter(b, a, lfilter(b, a, y, axis=-1), axis=-1)
+    basso = lr("lowpass", f1, x)
+    resto = x - basso
+    medio = lr("lowpass", f2, resto)
+    return basso, medio, resto - medio
+
+
+def fx_multiband(x, sr, p, ctx):
+    """Compressore a tre bande: bassi, medi e alti tenuti ciascuno per conto suo."""
+    out = np.zeros_like(x)
+    for nome, y in zip(("low", "mid", "high"), _bande(x, sr, p["low_freq"], p["high_freq"])):
+        env = envelope(np.abs(y).max(axis=0), sr, p["attack_ms"], p["release_ms"])
+        gr = _gain_computer(_to_db(env), p[f"{nome}_threshold_db"], max(1.0, p["ratio"]), 6.0)
+        out += y * _db(gr + p[f"{nome}_gain_db"])
+    return out
+
+
+_GEQ = (31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000)
+
+
+def _geq_nome(f: int) -> str:
+    return f"g{f // 1000}k" if f >= 1000 else f"g{f}"
+
+
+def fx_graphic_eq(x, sr, p, ctx):
+    y = x
+    for f in _GEQ:
+        g = p[_geq_nome(f)]
+        if g and f < sr * 0.45:
+            b, a = biquad("peak", float(f), 1.4, sr, g)
+            y = lfilter(b, a, y, axis=-1)
+    return y * _db(p["output_db"])
+
+
+def fx_ring_mod(x, sr, p, ctx):
+    t = np.arange(x.shape[-1]) / sr
+    return x * np.sin(2 * np.pi * p["freq"] * t)
+
+
+def fx_vibrato(x, sr, p, ctx):
+    t = np.arange(x.shape[-1]) / sr
+    rit = 0.003 + p["depth"] * 0.002 * 0.5 * (1 + np.sin(2 * np.pi * p["rate"] * t))
+    return np.stack([_mod_delay(c, sr, rit) for c in x])
+
+
 # --------------------------------------------------------------------------
 # registro
 # --------------------------------------------------------------------------
@@ -404,6 +541,8 @@ def _P(default, lo=None, hi=None, desc="", unit="", type_="float", choices=None)
 
 
 MIX = _P(1.0, 0, 1, "dry/wet: 0 = only dry, 1 = only effect")
+_NOTE_CHOICES = ("song", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+_SCALE_CHOICES = ("song",) + tuple(SCALES)
 
 REGISTRY: dict[str, dict[str, Any]] = {
     "gain": {"fn": fx_gain, "group": "utility", "desc": "Level and balance.",
@@ -497,6 +636,55 @@ REGISTRY: dict[str, dict[str, Any]] = {
                      "params": {"width": _P(1.0, 0, 2, "0 mono, 1 unchanged, 2 extra wide"),
                                 "bass_mono": _P(0.0, 0, 300, "make everything below this mono (0 = off)", "Hz")},
                      "automatable": ["width"]},
+    "autotune": {"fn": fx_autotune, "group": "pitch",
+                 "desc": "Auto-Tune: snaps the voice to the song's scale. Speed 0 = robotic, 20-50 ms = natural.",
+                 "params": {"key": _P("song", desc="key (song = the song's key)", type_="choice", choices=_NOTE_CHOICES),
+                            "scale": _P("song", desc="scale (song = the song's mode)", type_="choice", choices=_SCALE_CHOICES),
+                            "speed_ms": _P(20.0, 0, 400, "retune speed: 0 = hard/robotic", "ms"),
+                            "amount": _P(1.0, 0, 1, "how much to correct"),
+                            "humanize": _P(0.0, 0, 1, "keep some natural drift on long notes"),
+                            "range": _P("voice", desc="singer range", type_="choice", choices=("voice", "bass", "low", "high")),
+                            "mix": MIX}},
+    "pitch_shift": {"fn": fx_pitch_shift, "group": "pitch", "desc": "Pitch shift, same length. Voice mode keeps the formants.",
+                    "params": {"semitones": _P(0.0, -24, 24, "shift", "st"), "cents": _P(0.0, -100, 100, "fine", "cents"),
+                               "mode": _P("any", desc="any sound, or a single voice (more natural)", type_="choice",
+                                          choices=("any", "voice")),
+                               "mix": MIX}},
+    "vibrato": {"fn": fx_vibrato, "group": "pitch", "desc": "Vibrato: pitch wobble.",
+                "params": {"rate": _P(5.5, 0.5, 12, "speed", "Hz"), "depth": _P(0.4, 0, 1, "depth"), "mix": MIX}},
+    "doubler": {"fn": fx_doubler, "group": "space", "desc": "Fake double-tracking: thicker, wider vocals and guitars.",
+                "params": {"delay_ms": _P(18.0, 5, 60, "delay of the copies", "ms"), "detune": _P(0.5, 0, 1, "detune"),
+                           "width": _P(0.8, 0, 1, "stereo spread"), "mix": _P(0.5, 0, 1, "dry/wet")}},
+    "phaser": {"fn": fx_phaser, "group": "modulation", "desc": "Phaser: swirling notches.",
+               "params": {"rate": _P(0.4, 0.02, 8, "speed", "Hz"),
+                          "rate_beats": _P(0.0, 0, 32, "sync: one sweep every N beats (0 = use Hz)", "beats"),
+                          "stages": _P(4.0, 2, 8, "allpass stages"), "min": _P(300.0, 20, 5000, "lowest", "Hz"),
+                          "max": _P(3000.0, 100, 16000, "highest", "Hz"), "feedback": _P(0.3, 0, 0.9, "intensity"),
+                          "mix": _P(0.6, 0, 1, "dry/wet")}},
+    "ring_mod": {"fn": fx_ring_mod, "group": "color", "desc": "Ring modulator: metallic, robotic tones.",
+                 "params": {"freq": _P(30.0, 1, 5000, "carrier", "Hz"), "mix": _P(0.5, 0, 1, "dry/wet")}},
+    "exciter": {"fn": fx_exciter, "group": "tone", "desc": "Exciter: adds air and presence with new harmonics.",
+                "params": {"freq": _P(3000.0, 800, 12000, "from this frequency up", "Hz"),
+                           "drive": _P(0.5, 0, 1, "harmonics"), "amount": _P(0.3, 0, 1, "how much")}},
+    "graphic_eq": {"fn": fx_graphic_eq, "group": "tone", "desc": "10-band graphic EQ (31 Hz - 16 kHz).",
+                   "params": {**{_geq_nome(f): _P(0.0, -12, 12, f"{f} Hz" if f < 1000 else f"{f // 1000} kHz", "dB")
+                                 for f in _GEQ},
+                              "output_db": _P(0.0, -12, 12, "output level", "dB")}},
+    "transient": {"fn": fx_transient, "group": "dynamics", "desc": "Transient shaper: more/less punch and tail.",
+                  "params": {"attack": _P(3.0, -12, 12, "punch", "dB"), "sustain": _P(0.0, -12, 12, "tail", "dB"),
+                             "output_db": _P(0.0, -12, 12, "output level", "dB")}},
+    "multiband": {"fn": fx_multiband, "group": "dynamics", "desc": "3-band compressor: lows, mids and highs separately.",
+                  "params": {"low_freq": _P(200.0, 40, 1000, "low/mid split", "Hz"),
+                             "high_freq": _P(3000.0, 1000, 12000, "mid/high split", "Hz"),
+                             "low_threshold_db": _P(-20.0, -60, 0, "low threshold", "dB"),
+                             "mid_threshold_db": _P(-20.0, -60, 0, "mid threshold", "dB"),
+                             "high_threshold_db": _P(-20.0, -60, 0, "high threshold", "dB"),
+                             "ratio": _P(3.0, 1, 20, "ratio"), "attack_ms": _P(10.0, 0.1, 200, "attack", "ms"),
+                             "release_ms": _P(150.0, 5, 2000, "release", "ms"),
+                             "low_gain_db": _P(0.0, -12, 12, "low make-up", "dB"),
+                             "mid_gain_db": _P(0.0, -12, 12, "mid make-up", "dB"),
+                             "high_gain_db": _P(0.0, -12, 12, "high make-up", "dB"),
+                             "mix": MIX}},
 }
 
 AUTOMATABLE = {k: list(v.get("automatable", [])) + (["mix"] if "mix" in v["params"] else [])

@@ -34,6 +34,27 @@ function TextCommit({ value, onCommit, ...rest }) {
     onKeyDown={e => e.key === 'Enter' && e.target.blur()} {...rest} />
 }
 
+const GROUPS = [['pitch', 'Pitch & Auto-Tune'], ['tone', 'EQ & tone'], ['dynamics', 'Dynamics'], ['space', 'Space'],
+  ['modulation', 'Modulation'], ['color', 'Saturation & color'], ['utility', 'Utility']]
+
+// un clic per le cose che si fanno sempre su una voce
+function VocalTools({ track, run }) {
+  const ha = t => (track.effects || []).some(e => e.type === t)
+  return (
+    <div className="vocal-tools">
+      <h4><Icon name="mic" size={13} /> Vocal</h4>
+      <div className="row wrap">
+        <button disabled={ha('autotune')} title="Natural pitch correction on the song's key"
+          onClick={() => run('add_effect', { target: track.id, type: 'autotune', params: { speed_ms: 30, humanize: 0.3 }, index: 0 })}>Auto-Tune</button>
+        <button disabled={ha('autotune')} title="Robotic hard tune (speed 0)"
+          onClick={() => run('add_effect', { target: track.id, type: 'autotune', params: { speed_ms: 0 }, index: 0 })}>Hard tune</button>
+        <button title="Tune, EQ, de-ess, compress, air, double" onClick={() => run('apply_chain', { target: track.id, name: 'vocal pop', replace: true })}>Pop vocal chain</button>
+        <button title="Thicker and wider" disabled={ha('doubler')} onClick={() => run('add_effect', { target: track.id, type: 'doubler' })}>Double</button>
+      </div>
+    </div>
+  )
+}
+
 export function EffectChain({ target, effects, catalog, chains, run }) {
   const [add, setAdd] = useState('')
   const [open, setOpen] = useState(null)
@@ -62,7 +83,7 @@ export function EffectChain({ target, effects, catalog, chains, run }) {
               if (p.type === 'choice') return (
                 <Field key={k} label={k}><select value={params[k]} onChange={ev => run('update_effect', { target, index: i, params: { [k]: ev.target.value } })}>
                   {p.choices.map(c => <option key={c}>{c}</option>)}</select></Field>)
-              return <Slider key={k} label={k} title={p.desc} value={params[k]} min={p.min ?? 0} max={p.max ?? 1} step={stepFor(p)} unit={p.unit}
+              return <Slider key={k} label={e.type === 'graphic_eq' && k[0] === 'g' ? p.desc : k.replace(/_/g, ' ')} title={p.desc} value={params[k]} min={p.min ?? 0} max={p.max ?? 1} step={stepFor(p)} unit={p.unit}
                 onCommit={v => run('update_effect', { target, index: i, params: { [k]: v } })} />
             })}
           </div>)
@@ -70,7 +91,12 @@ export function EffectChain({ target, effects, catalog, chains, run }) {
       <div className="row">
         <select className="grow" value={add} onChange={e => setAdd(e.target.value)}>
           <option value="">+ effect…</option>
-          {(catalog || []).map(e => <option key={e.name} value={e.name}>{titleCase(e.name)} — {e.desc}</option>)}
+          {GROUPS.map(([g, label]) => {
+            const list = (catalog || []).filter(e => e.group === g)
+            return list.length ? <optgroup key={g} label={label}>
+              {list.map(e => <option key={e.name} value={e.name}>{titleCase(e.name)} — {e.desc}</option>)}</optgroup> : null
+          })}
+          {(catalog || []).filter(e => !GROUPS.some(([g]) => g === e.group)).map(e => <option key={e.name} value={e.name}>{titleCase(e.name)} — {e.desc}</option>)}
         </select>
         <button disabled={!add} onClick={() => { run('add_effect', { target, type: add }); setOpen(effects.length); setAdd('') }}>Add</button>
       </div>
@@ -141,6 +167,7 @@ function TrackInspector({ track, project, catalog, run }) {
       <Slider label="Volume" value={track.volume_db} min={-60} max={12} step={0.5} unit="dB" onCommit={v => run('set_track', { track: track.id, volume_db: v })} />
       <Slider label="Pan" value={track.pan || 0} min={-1} max={1} step={0.05} onCommit={v => run('set_track', { track: track.id, pan: v })} />
       {track.kind === 'midi' && <Instrument track={track} catalog={catalog} run={run} />}
+      {track.kind === 'audio' && <VocalTools track={track} run={run} />}
       <EffectChain target={track.id} effects={track.effects || []} catalog={catalog.effects} chains={catalog.chains} run={run} />
       {track.kind !== 'bus' && <div className="sends">
         <h4>Sends</h4>

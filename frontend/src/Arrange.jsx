@@ -100,7 +100,7 @@ const ClipView = memo(function ClipView({ c, t, row, start, len, ppb, bpb, bpm, 
 const HEAD_PLACEHOLDER = 'var(--head)'
 
 function Arrange({ project, ppb, setPpb, selection, setSelection, run, player, spb, onSeek, loop, setLoop, grid,
-  onOpenClip, onAddTrack, head = HEAD_DEFAULT, onHead }) {
+  onOpenClip, onAddTrack, onRecord, head = HEAD_DEFAULT, onHead }) {
   const HEAD = head
   const bpb = (project.time_sig[0] * 4) / project.time_sig[1]
   const ref = useRef(null)
@@ -258,6 +258,7 @@ function Arrange({ project, ppb, setPpb, selection, setSelection, run, player, s
     setSelection({ kind: 'track', id: t.id, track: t.id })
     setMenu({ x: e.clientX, y: e.clientY, items: [
       { label: 'Rename', icon: 'text', hint: 'F2', onClick: () => setEditing({ kind: 'track', id: t.id }) },
+      t.kind === 'audio' && onRecord && { label: 'Record here from the playhead', icon: 'mic', hint: 'R', onClick: () => onRecord(t.id) },
       t.kind === 'midi' && { label: 'Add clip at playhead', icon: 'plus', onClick: () => run('add_clip', { track: t.id, bar: Math.floor(posBar()), bars: bpb === 4 ? 4 : 1 }) },
       { label: t.mute ? 'Unmute' : 'Mute', icon: 'eyeOff', onClick: () => run('set_track', { track: t.id, mute: !t.mute }) },
       { label: t.solo ? 'Unsolo' : 'Solo', icon: 'eye', onClick: () => run('set_track', { track: t.id, solo: !t.solo }) },

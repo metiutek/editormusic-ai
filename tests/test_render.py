@@ -149,3 +149,91 @@ def test_loop_clip_repeats(store):
     _, c = store.project.clip(r["id"])
     ev = render.clip_note_events(store.project, c, SR)
     assert len(ev) == 4
+
+
+def _sega(f, sec=2.0, sr=SR):
+    t = np.arange(int(sr * sec)) / sr
+    ph = f * t
+    x = sum(np.sin(2 * np.pi * k * ph) / k for k in range(1, 10)) * 0.2
+    return np.stack([x, x])
+
+
+def _f0(y, sr=SR):
+    from medit import intonazione
+
+    f0, _ = intonazione.f0_track(y.mean(axis=0), sr)
+    return float(np.median(f0[f0 > 0]))
+
+
+def test_autotune_snaps_to_song_scale():
+    x = _sega(452.0)                       # La crescente di ~47 cent
+    ctx = {"bpm": 120, "sr": SR, "seed": 1, "key": "C", "mode": "major"}
+    y = fx.apply("autotune", x, SR, fx.validate("autotune", {"speed_ms": 0}), ctx)
+    assert abs(_f0(y) - 440.0) < 2.0
+    # in Re# maggiore il La non c'e': va su La# (466) o Sol# (415)
+    ctx2 = {**ctx, "key": "D#", "mode": "major"}
+    z = fx.apply("autotune", x, SR, fx.validate("autotune", {"speed_ms": 0}), ctx2)
+    assert min(abs(_f0(z) - 466.16), abs(_f0(z) - 415.3)) < 3.0
+
+
+def test_autotune_amount_zero_is_dry():
+    x = _sega(452.0)
+    y = fx.apply("autotune", x, SR, fx.validate("autotune", {"amount": 0}), {"bpm": 120, "key": "C", "mode": "major"})
+    assert abs(_f0(y) - _f0(x)) < 1.0
+
+
+def test_autotune_follows_song_key_in_cache(store, tmp_path):
+    from medit import audio_io
+
+    f = tmp_path / "voce.wav"
+    audio_io.write(f, _sega(452.0, 3.0, 44100), 44100, 24)
+    store.add_audio(path=str(f), name="Vocals", detect=False)
+    store.add_effect("Vocals", "autotune", {"speed_ms": 0})
+    t = store.project.tracks[0]
+    k1 = render.track_key(store.project, t, 44100, 1000, store.base_dir)
+    store.project.key = "D#"
+    assert render.track_key(store.project, t, 44100, 1000, store.base_dir) != k1
+
+
+def test_pitch_shift_moves_pitch_up():
+    x = _sega(220.0)
+    for mode in ("any", "voice"):
+        y = fx.apply("pitch_shift", x, SR, fx.validate("pitch_shift", {"semitones": 12, "mode": mode}), {"bpm": 120})
+        assert y.shape == x.shape
+        assert abs(_f0(y) - 440.0) < 8.0, mode
+
+
+def test_graphic_eq_boosts_its_band():
+    rng = np.random.default_rng(0)
+    x = rng.uniform(-0.3, 0.3, (2, SR))
+    y = fx.apply("graphic_eq", x, SR, fx.validate("graphic_eq", {"g1k": 12}), {"bpm": 120})
+    banda = lambda z: np.abs(np.fft.rfft(z[0]))[900:1100].mean()  # noqa: E731  (1 bin = 1 Hz)
+    assert banda(y) > banda(x) * 2.5
+
+
+def test_exciter_adds_highs():
+    x = _sega(220.0)
+    y = fx.apply("exciter", x, SR, fx.validate("exciter", {"amount": 1.0}), {"bpm": 120})
+    alto = lambda z: analyze.spectrum_balance(z, SR)["air"]  # noqa: E731
+    assert alto(y) > alto(x)
+
+
+def test_transient_shaper_adds_punch():
+    t = np.arange(SR) / SR
+    x = np.stack([np.sin(2 * np.pi * 200 * t) * np.exp(-t * 3)] * 2) * 0.5
+    y = fx.apply("transient", x, SR, fx.validate("transient", {"attack": 12}), {"bpm": 120})
+    assert np.abs(y[:, :300]).max() > np.abs(x[:, :300]).max() * 1.5
+
+
+def test_multiband_bands_sum_back():
+    rng = np.random.default_rng(0)
+    x = rng.uniform(-0.05, 0.05, (2, SR))       # sotto ogni soglia: niente compressione
+    sopra = {f"{b}_threshold_db": 0.0 for b in ("low", "mid", "high")}
+    y = fx.apply("multiband", x, SR, fx.validate("multiband", sopra), {"bpm": 120})
+    assert np.allclose(x, y, atol=1e-6)
+
+
+def test_doubler_widens():
+    x = _sega(220.0)
+    y = fx.apply("doubler", x, SR, fx.validate("doubler", {"mix": 1.0}), {"bpm": 120})
+    assert analyze.stereo(x)["correlation"] > analyze.stereo(y)["correlation"]

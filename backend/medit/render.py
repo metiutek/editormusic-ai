@@ -155,7 +155,9 @@ def track_key(project: Project, track: Track, sr: int, n: int, base_dir: str | N
     d = to_dict(track)
     for k in ("mute", "solo", "sends", "name", "color", "role"):
         d.pop(k, None)
-    blob = json.dumps([d, project.bpm, project.swing, sr, n, _asset_firma(project, _asset_usati(track), base_dir)],
+    # l'autotune "sulla tonalita' della canzone" cambia se cambia la tonalita'
+    tono = [project.key, project.mode] if any(e.type == "autotune" for e in track.effects) else None
+    blob = json.dumps([d, project.bpm, project.swing, sr, n, _asset_firma(project, _asset_usati(track), base_dir), tono],
                       sort_keys=True, default=str)
     return hashlib.sha1(blob.encode()).hexdigest()
 
@@ -259,7 +261,7 @@ def hash_seed(*parti) -> int:
 
 
 def apply_chain(project: Project, x: np.ndarray, effects: list, automation: list, sr: int, seed: int) -> np.ndarray:
-    ctx = {"bpm": project.bpm, "sr": sr, "seed": seed}
+    ctx = {"bpm": project.bpm, "sr": sr, "seed": seed, "key": project.key, "mode": project.mode}
     n = x.shape[-1]
     for i, e in enumerate(effects):
         if not e.enabled or e.type not in fx.REGISTRY:

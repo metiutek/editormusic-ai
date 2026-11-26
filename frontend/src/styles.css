@@ -314,3 +314,14 @@ button.on { border-color: var(--accent); color: var(--accent); }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; margin: 6px 0; }
 .sends h4, .autom h4 { margin: 12px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--dim); }
 .sends > button { margin: 2px 4px 2px 0; }
+
+/* registrazione */
+.rec-btn { color: #e5484d; }
+.rec-btn.rec { background: #e5484d; color: #fff; border-color: #e5484d; animation: rec-pulse 1.2s ease-in-out infinite; }
+.rec-btn.arming, .rec-btn.saving { opacity: .6; }
+@keyframes rec-pulse { 50% { box-shadow: 0 0 0 4px rgba(229, 72, 77, .25); } }
+.rec-meter { width: 60px; height: 6px; border-radius: 3px; overflow: hidden; display: inline-block;
+  background: linear-gradient(90deg, var(--ok) 0 70%, #d29922 70% 88%, #e5484d 88%); }
+.rec-meter i { display: block; height: 100%; width: 100%; transform-origin: right; transform: scaleX(1);
+  background: var(--panel2); transition: transform 60ms linear; }
+.app.recording .playhead { background: #e5484d; }

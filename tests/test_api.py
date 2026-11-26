@@ -79,3 +79,53 @@ def test_client_disconnects_are_silent():
     assert chiamate == []
     api._connessioni_chiuse(Loop(), {"exception": ValueError("vero errore")})
     assert len(chiamate) == 1
+
+
+def _wav(sec=1.0, sr=44100):
+    import numpy as np
+
+    buf = io.BytesIO()
+    t = np.arange(int(sr * sec)) / sr
+    sf.write(buf, np.sin(2 * np.pi * 220 * t) * 0.3, sr, format="WAV", subtype="PCM_16")
+    return buf.getvalue()
+
+
+def test_record_creates_vocal_track_then_adds_takes(client):
+    r = client.post("/api/record", files={"file": ("take.wav", _wav(), "audio/wav")}, data={"bar": "2.5"})
+    assert r.status_code == 200, r.text
+    s = r.json()
+    t = s["project"]["tracks"][0]
+    assert t["name"] == "Vocals" and t["kind"] == "audio"
+    c = t["clips"][0]
+    assert c["name"] == "Take 1" and abs(c["bar"] - 2.5) < 1e-6
+    assert s["result"]["track_id"] == t["id"]
+    # seconda ripresa sulla stessa traccia
+    r = client.post("/api/record", files={"file": ("take.wav", _wav(), "audio/wav")}, data={"bar": "1", "track": t["id"]})
+    t = r.json()["project"]["tracks"][0]
+    assert sorted(c["name"] for c in t["clips"]) == ["Take 1", "Take 2"] and len(r.json()["project"]["tracks"]) == 1
+    # un solo undo toglie la ripresa (e la prima volta anche la traccia nuova)
+    client.post("/api/op/undo", json={})
+    client.post("/api/op/undo", json={})
+    assert client.get("/api/state").json()["project"]["tracks"] == []
+
+
+def test_record_on_midi_track_makes_a_new_audio_track(client):
+    client.post("/api/op/add_chords", json={"progression": "C"})
+    midi = client.get("/api/state").json()["project"]["tracks"][0]["id"]
+    r = client.post("/api/record", files={"file": ("take.wav", _wav(), "audio/wav")}, data={"track": midi})
+    kinds = [t["kind"] for t in r.json()["project"]["tracks"]]
+    assert kinds == ["midi", "audio"]
+
+
+def test_overlapping_take_goes_on_a_new_track_below(client):
+    r = client.post("/api/record", files={"file": ("take.wav", _wav(4.0), "audio/wav")}, data={"bar": "1"})
+    v = r.json()["result"]["track_id"]
+    client.post("/api/op/add_chords", json={"progression": "C"})
+    r = client.post("/api/record", files={"file": ("take.wav", _wav(2.0), "audio/wav")}, data={"bar": "2", "track": v})
+    tr = r.json()["project"]["tracks"]
+    assert [t["name"] for t in tr] == ["Vocals", "Vocals 2", "Chords"]
+    assert len(tr[0]["clips"]) == 1 and tr[1]["clips"][0]["name"] == "Take 2"
+    assert r.json()["result"]["track_id"] == tr[1]["id"]
+    # niente sovrapposizione: stessa traccia
+    r = client.post("/api/record", files={"file": ("take.wav", _wav(1.0), "audio/wav")}, data={"bar": "5", "track": v})
+    assert len(r.json()["project"]["tracks"][0]["clips"]) == 2
