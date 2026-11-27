@@ -171,4 +171,4 @@ If medit is useful to you, a ⭐ helps other musicians and developers find it.
 
 [MIT license](https://github.com/metiutek/editormusic-ai/blob/main/LICENSE).
 
-<p align="center"><sub>Made by <a href="https://metiu.xyz"><b>metiu</b></a></sub></p>
+<p align="center"><sub>Created by <a href="https://metiu.xyz/"><b>Mattia Cibin (Metiu)</b></a> — independent developer from Italy.</sub></p>
