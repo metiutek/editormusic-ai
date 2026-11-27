@@ -19,11 +19,9 @@
   <a href="https://github.com/metiutek/editormusic-ai/stargazers"><img src="https://img.shields.io/github/stars/metiutek/editormusic-ai?style=flat-square" alt="stelle GitHub"/></a>
 </p>
 
-<!-- Demo: metti il video/GIF in docs/medit-promo.gif, poi togli il commento:
 <p align="center">
-  <img src="https://raw.githubusercontent.com/metiutek/editormusic-ai/main/docs/medit-promo.gif" alt="demo di medit — un agente IA scrive accordi, batteria, basso e melodia nella DAW, poi mixa e masterizza" width="820"/>
+  <img src="https://raw.githubusercontent.com/metiutek/editormusic-ai/main/docs/medit-promo.gif" alt="demo di medit — un agente IA scrive accordi, batteria, basso e melodia nella DAW, poi mixa e masterizza" width="640"/>
 </p>
--->
 
 <p align="center">
   <a href="https://metiutek.github.io/editormusic-ai/">Sito</a> ·
