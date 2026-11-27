@@ -14,6 +14,7 @@
   <a href="https://pypi.org/project/medit-mcp/"><img src="https://img.shields.io/pypi/v/medit-mcp.svg?style=flat-square" alt="PyPI version"/></a>
   <a href="https://pypi.org/project/medit-mcp/"><img src="https://img.shields.io/pypi/pyversions/medit-mcp.svg?style=flat-square" alt="Python versions"/></a>
   <img src="https://img.shields.io/badge/MCP%20tools-95-blueviolet?style=flat-square" alt="95 MCP tools"/>
+  <a href="https://glama.ai/mcp/servers/metiutek/editormusic-ai"><img src="https://glama.ai/mcp/servers/metiutek/editormusic-ai/badges/score.svg" alt="medit MCP server on Glama"/></a>
   <img src="https://img.shields.io/badge/runs-100%25%20local-brightgreen?style=flat-square" alt="Runs locally"/>
   <a href="https://github.com/metiutek/editormusic-ai/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT license"/></a>
   <a href="https://github.com/metiutek/editormusic-ai/stargazers"><img src="https://img.shields.io/github/stars/metiutek/editormusic-ai?style=flat-square" alt="GitHub stars"/></a>
