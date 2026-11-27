@@ -1,0 +1,16 @@
+name: Feature request
+description: A sound, an effect, a tool for the agent, a UI idea
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What you would like
+      description: What you are trying to make, and what is missing or slow today.
+    validations:
+      required: true
+  - type: textarea
+    id: how
+    attributes:
+      label: How it could work
+      description: In the UI, as an MCP tool, or both.

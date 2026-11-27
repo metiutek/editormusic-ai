@@ -410,6 +410,7 @@ export default function App() {
             {tab === 'chat' && <Chat llm={llm} setLlm={setLlm} refsSel={refsSel} docPath={st.path} />}
             {tab === 'versions' && <Versions revision={st.revision} run={run} />}
           </div>
+          <a className="credit" href="https://metiu.xyz" target="_blank" rel="noopener noreferrer">Made by <b>metiu</b></a>
         </div>
       </div>
 

@@ -1,7 +1,19 @@
 # Changelog
 
-## Non rilasciato
+## 0.4.0 — 2026-11-27
 
+- **Pannello traccia** in basso (si apre selezionando traccia o clip): preset per famiglia, manopole
+  rapide Reverb/Pan/Volume, rack di effetti a schede con libreria, schede Clip/Track/Sound/Master;
+  Mixer e Master stanno li'. EQ parametrico/grafico con curva e spettro vero, compressore con curva di
+  trasferimento, riduzione di guadagno nel tempo e meter IN/GR/OUT (`/api/fxview`, stesso codice del render).
+- **Play a blocchi in tempo reale**: render a pezzi di 3 s dal cursore (`/api/chunk`, identico al render
+  intero); le modifiche durante il play ricalcolano solo i pezzi avanti, con dissolvenza.
+- Registrazione voce dal vivo: scelta ingresso, meter, ascolto in cuffia, calibrazione della latenza,
+  arma (R), metronomo con count-in, vista del testo. Preset voce nuovi (natural, podcast, rap, trap,
+  robot, dreamy, stadium).
+- "Made by metiu" in fondo al pannello laterale, con link a metiu.xyz.
+- README riscritto (installazione in 3 passi, configurazione dei client MCP, esempi, confronto, FAQ),
+  sito su GitHub Pages (`docs/`), CONTRIBUTING, SECURITY, template di issue e PR, CITATION.cff.
 - **Registrazione dal microfono**: R o il tasto rosso; la canzone suona, la ripresa (WAV float dal
   segnale grezzo, AudioWorklet) parte dal cursore con la latenza compensata e va sulla traccia audio
   scelta o su una nuova "Vocals"; se si sovrappone a una ripresa vecchia va su una traccia sotto.

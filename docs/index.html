@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>medit — Free Open-Source AI Music Editor (DAW) &amp; MCP Server</title>
+<meta name="description" content="medit is a free, open-source AI music editor: a real DAW an AI agent can drive. Write chords, beats, bass, melodies and vocals, then mix and master — with Claude Code, Cursor or any MCP client.">
+<meta name="keywords" content="AI music editor, AI DAW, open source DAW, AI music generator, MCP server, Claude music, AI songwriting, beat maker, music production, mixing and mastering, piano roll, Auto-Tune, stem separation">
+<link rel="canonical" href="https://metiutek.github.io/editormusic-ai/">
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+<meta name="theme-color" content="#16171c">
+<meta name="robots" content="index, follow">
+<meta name="author" content="metiu">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="medit">
+<meta property="og:title" content="medit — the open-source AI music editor you drive with words">
+<meta property="og:description" content="A real DAW an AI agent can use: chords, beats, bass, melodies, vocals, mixing and mastering. Free, local, MIT.">
+<meta property="og:url" content="https://metiutek.github.io/editormusic-ai/">
+<meta property="og:image" content="https://metiutek.github.io/editormusic-ai/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="medit — open-source AI music editor and MCP server">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="medit — the open-source AI music editor you drive with words">
+<meta name="twitter:description" content="A real DAW an AI agent can use. Compose, mix and master with Claude Code, Cursor or any MCP client.">
+<meta name="twitter:image" content="https://metiutek.github.io/editormusic-ai/social-preview.png">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "name": "medit",
+      "alternateName": "medit-mcp",
+      "applicationCategory": "MultimediaApplication",
+      "applicationSubCategory": "Digital audio workstation",
+      "operatingSystem": "Windows, macOS, Linux",
+      "description": "Open-source AI music editor (DAW) and MCP server: tracks, MIDI, piano roll, built-in synths and drum kits, 31 effects, mixing and mastering, driven by an AI agent or by hand.",
+      "url": "https://metiutek.github.io/editormusic-ai/",
+      "downloadUrl": "https://pypi.org/project/medit-mcp/",
+      "softwareVersion": "0.4.0",
+      "license": "https://opensource.org/licenses/MIT",
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "codeRepository": "https://github.com/metiutek/editormusic-ai",
+      "author": { "@type": "Person", "name": "metiu", "url": "https://metiu.xyz" },
+      "programmingLanguage": ["Python", "JavaScript"],
+      "image": "https://metiutek.github.io/editormusic-ai/social-preview.png",
+      "featureList": [
+        "AI agent control through the Model Context Protocol (95 tools)",
+        "Chord progressions from roman numerals with voice leading",
+        "Drum patterns for 14 genres, bass lines, arpeggios, melodies",
+        "31 built-in synthesizer and drum sounds",
+        "31 effects including Auto-Tune, EQ, compressor, reverb and true-peak limiter",
+        "Automatic mastering to -14 LUFS",
+        "Microphone recording with latency compensation",
+        "Stem separation with Ultimate Vocal Remover or Demucs",
+        "AI song generation with ACE-Step and Stable Audio",
+        "MIDI import and export, WAV/FLAC/MP3/OGG export"
+      ],
+      "sameAs": ["https://github.com/metiutek/editormusic-ai", "https://pypi.org/project/medit-mcp/"]
+    },
+    {
+      "@type": "FAQPage",
+      "mainEntity": [
+        { "@type": "Question", "name": "Is medit free?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. medit is open source under the MIT license, with no account, subscription or watermark. Cloud services are optional and use your own key." } },
+        { "@type": "Question", "name": "Can Claude make music with medit?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Claude Code, Claude Desktop, Cursor, Codex and any Model Context Protocol client get 95 tools to compose, arrange, mix, master, analyze and export songs." } },
+        { "@type": "Question", "name": "Does medit need a GPU?",
+          "acceptedAnswer": { "@type": "Answer", "text": "No. The DAW, synthesizers, effects and analysis run on the CPU. Only the optional generative models (ACE-Step, Stable Audio, RVC, Demucs) benefit from a GPU." } },
+        { "@type": "Question", "name": "What formats can medit export?",
+          "acceptedAnswer": { "@type": "Answer", "text": "WAV, FLAC, MP3, OGG, MIDI and per-track stems." } }
+      ]
+    }
+  ]
+}
+</script>
+
+<style>
+  :root {
+    --bg: #16171c; --panel: #1f2028; --panel2: #272833; --line: #33354a;
+    --text: #e6e7ee; --dim: #9fa2b5; --accent: #5b8cff; --accent2: #ff6b9a;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  a { color: var(--accent); }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
+  header.top { display: flex; align-items: center; justify-content: space-between; padding: 18px 0; }
+  header.top .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 20px;
+                      color: var(--text); text-decoration: none; }
+  header.top nav a { color: var(--dim); text-decoration: none; margin-left: 18px; font-size: 15px; }
+  header.top nav a:hover { color: var(--text); }
+  .hero { padding: 56px 0 40px; text-align: center; }
+  .hero h1 { font-size: clamp(32px, 6vw, 56px); line-height: 1.1; margin: 0 0 18px; letter-spacing: -0.02em; }
+  .hero h1 span { background: linear-gradient(90deg, var(--accent), var(--accent2));
+                  -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero p.lead { font-size: clamp(17px, 2.4vw, 21px); color: var(--dim); max-width: 720px; margin: 0 auto 30px; }
+  .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .btn { display: inline-block; padding: 12px 22px; border-radius: 10px; font-weight: 600; text-decoration: none;
+         border: 1px solid var(--line); color: var(--text); background: var(--panel); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  pre { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px;
+        overflow-x: auto; font-size: 14.5px; text-align: left; }
+  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+  .install { max-width: 560px; margin: 30px auto 0; }
+  section { padding: 44px 0; border-top: 1px solid var(--line); }
+  section h2 { font-size: clamp(24px, 3.4vw, 32px); margin: 0 0 22px; letter-spacing: -0.01em; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+  .card h3 { margin: 0 0 8px; font-size: 18px; }
+  .card p { margin: 0; color: var(--dim); font-size: 15.5px; }
+  blockquote { margin: 0 0 14px; padding: 14px 18px; background: var(--panel2); border-left: 3px solid var(--accent2);
+               border-radius: 0 10px 10px 0; font-style: italic; }
+  table { width: 100%; border-collapse: collapse; font-size: 15.5px; }
+  th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; }
+  th { color: var(--dim); font-weight: 600; }
+  .scroll { overflow-x: auto; }
+  details { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 18px; margin-bottom: 10px; }
+  summary { cursor: pointer; font-weight: 600; }
+  details p { color: var(--dim); margin: 10px 0 0; }
+  footer { padding: 34px 0 50px; color: var(--dim); font-size: 14.5px; border-top: 1px solid var(--line); text-align: center; }
+  @media (max-width: 560px) { header.top nav a:not(.gh) { display: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="./"><img src="logo.svg" alt="" width="34" height="34"> medit</a>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#mcp">MCP</a>
+      <a href="#faq">FAQ</a>
+      <a class="gh" href="https://github.com/metiutek/editormusic-ai">GitHub</a>
+    </nav>
+  </header>
+
+  <main>
+    <div class="hero">
+      <h1>The open-source <span>AI music editor</span> you drive with words</h1>
+      <p class="lead">medit is a real DAW — tracks, piano roll, synths, drums, effects, mixer — that an AI agent can use for you.
+        Ask for a song; watch the chords, beats, bass and melody appear; fix anything by hand. Free, local, MIT.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/metiutek/editormusic-ai#install--3-steps">Get started</a>
+        <a class="btn" href="https://github.com/metiutek/editormusic-ai">Star on GitHub</a>
+      </div>
+      <div class="install">
+<pre><code>uv tool install medit-mcp
+medit ui</code></pre>
+      </div>
+      <!-- demo: <img src="medit-promo.gif" alt="medit demo: an AI agent writes and mixes a song in the DAW" width="1000" style="max-width:100%;border-radius:12px;margin-top:30px"> -->
+    </div>
+
+    <section id="features">
+      <h2>A DAW and an AI agent, sharing the same buttons</h2>
+      <div class="grid">
+        <div class="card"><h3>Writes real, editable music</h3><p>Chords from roman numerals with voice leading, 14 drum genres, bass lines, arpeggios and melodies — as notes you can move, not a flat audio file.</p></div>
+        <div class="card"><h3>31 built-in sounds</h3><p>Pianos, e-piano, pads, strings, supersaw, 808, reese, acid, guitars, harp and 5 drum kits — synthesized locally, levels calibrated in LUFS.</p></div>
+        <div class="card"><h3>Mixing &amp; mastering</h3><p>31 effects — EQ, compressor, multiband, de-esser, reverb, delay, Auto-Tune, true-peak limiter — buses, sends, automation and one-click mastering to -14 LUFS.</p></div>
+        <div class="card"><h3>The agent measures what it can't hear</h3><p>Loudness, true peak, spectrum, piano-roll images and a song review that flags mud, clipping and wrong notes — with the tool that fixes each.</p></div>
+        <div class="card"><h3>Record and tune your voice</h3><p>Microphone recording with latency compensation, metronome and lyrics view; Auto-Tune, vocal chains and your own RVC voice model.</p></div>
+        <div class="card"><h3>Generative AI, local or cloud</h3><p>Whole sung songs with ACE-Step, loops with Stable Audio, stems with Ultimate Vocal Remover or Demucs, humming to MIDI.</p></div>
+      </div>
+    </section>
+
+    <section id="examples">
+      <h2>Just ask</h2>
+      <blockquote>“Write a sad lo-fi song in A minor at 80 BPM: intro, verse, chorus. Dusty drums, Rhodes chords, a soft lead, then master it for Spotify.”</blockquote>
+      <blockquote>“The chorus needs to be bigger — double the melody an octave up and add a pad.”</blockquote>
+      <blockquote>“The bass is muddy, fix it.” · “Put natural Auto-Tune on my vocal.”</blockquote>
+    </section>
+
+    <section id="mcp">
+      <h2>Works with Claude Code, Cursor, Codex and any MCP client</h2>
+<pre><code>claude mcp add medit -- uvx medit-mcp</code></pre>
+<pre><code>{
+  "mcpServers": {
+    "medit": { "command": "uvx", "args": ["medit-mcp"] }
+  }
+}</code></pre>
+      <p style="color:var(--dim)">95 tools: compose, arrange, set instruments, add effects and buses, preview, analyze, review, master and export. With <code>medit ui</code> open, connect to <code>http://127.0.0.1:8780/mcp/</code> and watch the agent work on the timeline live.</p>
+    </section>
+
+    <section id="compare">
+      <h2>How it compares</h2>
+      <div class="scroll">
+      <table>
+        <thead><tr><th></th><th>medit</th><th>AI song generators</th><th>Classic DAWs</th></tr></thead>
+        <tbody>
+          <tr><td>Editable result</td><td>✅ notes, tracks, effects</td><td>❌ one audio file</td><td>✅</td></tr>
+          <tr><td>AI agent does the work</td><td>✅ 95 MCP tools</td><td>✅ prompt only</td><td>❌</td></tr>
+          <tr><td>Automatic mix &amp; master</td><td>✅</td><td>❌</td><td>manual</td></tr>
+          <tr><td>Local, no subscription</td><td>✅</td><td>❌</td><td>depends</td></tr>
+          <tr><td>Open source</td><td>✅ MIT</td><td>❌</td><td>rarely</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+
+    <section id="faq">
+      <h2>FAQ</h2>
+      <details><summary>Is medit free?</summary><p>Yes. MIT license, no account, no subscription, no watermark. Cloud services (ElevenLabs, Replicate) are optional and use your own key.</p></details>
+      <details><summary>Can Claude make music with medit?</summary><p>Yes. Claude Code, Claude Desktop, Cursor, Codex and any Model Context Protocol client get 95 tools to compose, arrange, mix, master, analyze and export.</p></details>
+      <details><summary>Does it need a GPU?</summary><p>No. The DAW, synths, effects and analysis run on the CPU. Only the optional generative models want a GPU.</p></details>
+      <details><summary>What can it import and export?</summary><p>Imports WAV, MP3, FLAC, OGG, AIFF and MIDI (m4a and video audio with ffmpeg). Exports WAV, FLAC, MP3, OGG, MIDI and per-track stems.</p></details>
+      <details><summary>Which systems does it run on?</summary><p>Windows, macOS and Linux, with Python 3.10 or newer.</p></details>
+    </section>
+  </main>
+
+  <footer>
+    medit is MIT-licensed open source ·
+    <a href="https://github.com/metiutek/editormusic-ai">GitHub</a> ·
+    <a href="https://pypi.org/project/medit-mcp/">PyPI</a> ·
+    sister projects <a href="https://github.com/metiutek/editorvideo-ai">vedit</a> (video) and
+    <a href="https://github.com/metiutek/editorimage-ai">pedit</a> (images)
+    <br><br>Made by <a href="https://metiu.xyz"><b>metiu</b></a>
+  </footer>
+</div>
+</body>
+</html>

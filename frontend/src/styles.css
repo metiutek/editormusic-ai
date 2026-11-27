@@ -142,6 +142,9 @@ textarea { width: 100%; resize: vertical; }
 .center { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: #121318; }
 .side { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-left: 1px solid var(--line); }
 .tab-body { flex: 1; overflow: auto; display: flex; flex-direction: column; min-height: 0; }
+.credit { flex: none; padding: 3px 10px; border-top: 1px solid var(--line); font-size: 11px; color: var(--dim); text-align: right; text-decoration: none; }
+.credit:hover { color: var(--text); }
+.credit b { color: var(--accent); font-weight: 600; }
 .arr-bar { flex: none; min-width: 0; display: flex; gap: 8px; align-items: center; padding: 4px 10px; border-bottom: 1px solid var(--line); background: var(--panel); }
 .arr-bar label { color: var(--dim); display: inline-flex; gap: 4px; align-items: center; }
 

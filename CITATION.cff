@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use medit in research or a publication, please cite it."
+title: "medit: an open-source AI music editor (DAW) and MCP server"
+type: software
+authors:
+  - alias: metiu1
+license: MIT
+repository-code: "https://github.com/metiutek/editormusic-ai"
+url: "https://metiutek.github.io/editormusic-ai/"
+version: 0.4.0
+date-released: 2026-11-27
+keywords:
+  - AI music
+  - digital audio workstation
+  - music production
+  - Model Context Protocol
+  - AI agent
+  - music theory
+  - mixing and mastering

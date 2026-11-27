@@ -3,8 +3,8 @@
 # con il comando del server MCP, `uvx medit-mcp` funziona senza --from.
 # Il modulo Python importabile resta `medit`.
 name = "medit-mcp"
-version = "0.3.0"
-description = "Open-source AI music editor (DAW) and MCP server: tracks, MIDI, built-in synths and drums, effects, mixing and mastering. Write songs with an AI agent - chords, beats, bass lines, melodies, lyrics - and fix them by hand."
+version = "0.4.0"
+description = "Free open-source AI music editor (DAW) and MCP server: write songs with Claude Code, Cursor or any AI agent - chords, beats, bass, melodies, vocals - with built-in synths, 31 effects, Auto-Tune, mixing and mastering. Fix anything by hand."
 readme = "README.md"
 requires-python = ">=3.10"
 keywords = [
@@ -12,8 +12,10 @@ keywords = [
     "midi", "synthesizer", "drum-machine", "beat-maker", "mixing", "mastering", "loudness", "lufs",
     "mcp", "mcp-server", "model-context-protocol", "ai-agent", "agentic-ai", "claude", "claude-code",
     "cursor", "audio", "audio-editor", "piano-roll", "chord-progression", "music-theory",
+    "ai-music-generator", "text-to-music", "music-generation", "songwriting", "autotune",
+    "vocal-remover", "stem-separation", "rvc", "beat-making", "llm",
 ]
-authors = [{ name = "metiu1" }]
+authors = [{ name = "metiu" }]
 license = { text = "MIT" }
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -57,11 +59,12 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/metiutek/editormusic-ai"
+Homepage = "https://metiutek.github.io/editormusic-ai/"
 Source = "https://github.com/metiutek/editormusic-ai"
 Issues = "https://github.com/metiutek/editormusic-ai/issues"
 Documentation = "https://github.com/metiutek/editormusic-ai#readme"
-Changelog = "https://github.com/metiutek/editormusic-ai/commits/main"
+Changelog = "https://github.com/metiutek/editormusic-ai/blob/main/CHANGELOG.md"
+Author = "https://metiu.xyz"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "httpx>=0.27"]

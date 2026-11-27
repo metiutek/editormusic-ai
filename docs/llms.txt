@@ -1,0 +1,17 @@
+# medit
+
+> medit is a free, open-source AI music editor (DAW) and MCP server. An AI agent (Claude Code, Cursor, Codex, any Model Context Protocol client) or a person with a mouse can compose, arrange, mix, master and export songs with the same operations.
+
+- Install: `uv tool install medit-mcp`, then `medit ui` (web DAW on http://127.0.0.1:8780)
+- MCP (stdio): `claude mcp add medit -- uvx medit-mcp`
+- MCP (live, song open in browser): http://127.0.0.1:8780/mcp/
+- Agent workflow: project_create -> structure -> add_drums / add_chords / add_bassline / add_melody -> set_instrument / add_effect / add_bus + set_send -> preview + analyze_mix -> review_song -> balance_mix / auto_master -> export_audio
+- 95 MCP tools, 31 built-in sounds, 31 effects, 22 effect chains, 14 drum genres
+- License: MIT. Author: metiu (https://metiu.xyz)
+
+## Docs
+
+- [README](https://github.com/metiutek/editormusic-ai/blob/main/README.md): features, install, MCP setup, FAQ
+- [AGENTS.md](https://github.com/metiutek/editormusic-ai/blob/main/AGENTS.md): code map and rules for coding agents
+- [CHANGELOG](https://github.com/metiutek/editormusic-ai/blob/main/CHANGELOG.md)
+- [PyPI package](https://pypi.org/project/medit-mcp/)

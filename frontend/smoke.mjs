@@ -46,6 +46,7 @@ assert.ok(testo.includes('Chords'), 'track not rendered')
 assert.ok(testo.includes('verse'), 'sections not rendered')
 for (const t of ['Assistant', 'AI tools', 'Compose', 'Versions', 'Mixer', 'Master']) assert.ok(testo.includes(t), `${t} missing`)
 assert.ok(w.document.querySelector('.metro-wrap'), 'metronome missing')
+assert.equal(w.document.querySelector('a.credit')?.getAttribute('href'), 'https://metiu.xyz', 'credit link missing')
 
 // selezionare una traccia apre il pannello in basso con preset, manopole rapide e rack
 w.document.querySelector('.track-head').dispatchEvent(new w.MouseEvent('pointerdown', { bubbles: true }))

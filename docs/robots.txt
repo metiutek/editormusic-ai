@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://metiutek.github.io/editormusic-ai/sitemap.xml
